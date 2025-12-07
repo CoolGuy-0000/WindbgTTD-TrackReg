@@ -20,17 +20,14 @@ using namespace Replay;
 #include "disasm_helper.h"
 
 ZydisRegister GetRegisterByName(const char* reg) {
-    // 1. 빠른 검색을 위한 정적 맵 (한 번만 초기화됨)
     static std::unordered_map<std::string, ZydisRegister> registerMap;
     static bool isInitialized = false;
 
-    // 2. 최초 실행 시 맵 구성 (Zydis의 모든 레지스터를 순회하며 등록)
     if (!isInitialized) {
         for (int i = 0; i < ZYDIS_REGISTER_MAX_VALUE; ++i) {
             ZydisRegister currentReg = (ZydisRegister)i;
             const char* regStr = ZydisRegisterGetString(currentReg);
 
-            // 유효한 문자열이 있는 경우만 맵에 등록
             if (regStr) {
                 registerMap[regStr] = currentReg;
             }
@@ -40,18 +37,15 @@ ZydisRegister GetRegisterByName(const char* reg) {
 
     if (!reg) return ZYDIS_REGISTER_NONE;
 
-    // 3. 입력값 소문자 변환 (Zydis 문자열은 기본적으로 소문자 "rax" 등임)
     std::string query = reg;
     std::transform(query.begin(), query.end(), query.begin(),
         [](unsigned char c) { return std::tolower(c); });
 
-    // 4. 맵에서 검색
     auto it = registerMap.find(query);
     if (it != registerMap.end()) {
         return it->second;
     }
 
-    // 못 찾으면 NONE 반환
     return ZYDIS_REGISTER_NONE;
 }
 
@@ -63,24 +57,21 @@ uint64_t GetRegisterValue(const AMD64_CONTEXT& context, ZydisRegister reg, bool 
             case ZYDIS_REGISTER_CH: return (context.Rcx >> 8) & 0xFF;
             case ZYDIS_REGISTER_DH: return (context.Rdx >> 8) & 0xFF;
             case ZYDIS_REGISTER_BH: return (context.Rbx >> 8) & 0xFF;
-            default: break; // AL, CL, DL, BL 등은 아래 switch에서 처리
+            default: break;
         }
     }
 
     switch (reg) {
-            // RAX 계열
+
         case ZYDIS_REGISTER_RAX: case ZYDIS_REGISTER_EAX: case ZYDIS_REGISTER_AX: case ZYDIS_REGISTER_AL:
             return context.Rax;
 
-            // RBX 계열
         case ZYDIS_REGISTER_RBX: case ZYDIS_REGISTER_EBX: case ZYDIS_REGISTER_BX: case ZYDIS_REGISTER_BL:
             return context.Rbx;
 
-            // RCX 계열
         case ZYDIS_REGISTER_RCX: case ZYDIS_REGISTER_ECX: case ZYDIS_REGISTER_CX: case ZYDIS_REGISTER_CL:
             return context.Rcx;
 
-            // RDX 계열
         case ZYDIS_REGISTER_RDX: case ZYDIS_REGISTER_EDX: case ZYDIS_REGISTER_DX: case ZYDIS_REGISTER_DL:
             return context.Rdx;
 
