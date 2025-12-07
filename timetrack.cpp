@@ -281,8 +281,8 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
     rootRecord.id = ++idCounter; // 1
     rootRecord.parentId = 0;     // 0 (Virtual Root)
     rootRecord.depth = 0;
-    rootRecord.seq = currentPos.Sequence;
-    rootRecord.steps = currentPos.Steps;
+    rootRecord.seq = (uint64_t)currentPos.Sequence;
+    rootRecord.steps = (uint64_t)currentPos.Steps;
 
     // Update WorkItem to point to this root record
     rootItem.parentId = rootRecord.id;
@@ -350,8 +350,8 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
             continue;
         }
 
-        record.seq = foundPos.Sequence;
-        record.steps = foundPos.Steps;
+        record.seq = (uint64_t)foundPos.Sequence;
+        record.steps = (uint64_t)foundPos.Steps;
 
         // Disassemble
         UniqueCursor inspectCursor(pEngine->NewCursor());
