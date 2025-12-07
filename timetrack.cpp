@@ -108,6 +108,11 @@ static Position FindRegisterWrite(ULONG threadID, IReplayEngineView* engine, Zyd
         // Let's assume standard behavior: ReplayBackward moves global time.
         // If thread switched, the register values of *our* thread wouldn't change until it runs again.
 
+        // Actually, we must check the thread context.
+        if (cursor->GetThreadInfo((ThreadId)threadID).WriteAccessMask == 0) {
+             // Thread might not be running? Or we just read the context for that thread ID.
+        }
+
         // Get Context for specific thread
         AMD64_CONTEXT x = cursor->GetCrossPlatformContext((ThreadId)threadID).operator CROSS_PLATFORM_CONTEXT().Amd64Context;
 
@@ -161,8 +166,7 @@ static Position FindMemoryWrite(IReplayEngineView* engine, uint64_t address, uin
 // ----------------------------------------------------------------------------
 
 struct WorkItem {
-    int id; // My ID
-    int parentId; // Parent ID
+    int parentId; // The ID of the TraceRecord that spawned this work item
 
     ZydisOperandType type;
     ZydisRegister reg;
@@ -267,22 +271,25 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
     
     int idCounter = 0;
 
-    // Root Item
+    // Root Item (Virtual start of trace)
     WorkItem rootItem;
-    rootItem.id = ++idCounter;
-    rootItem.parentId = 0; // 0 is virtual root
+    rootItem.parentId = 0; // Will match the root record's ID
     rootItem.depth = 0;
     rootItem.startPos = currentPos;
 
     ZydisRegister TargetRegister = GetRegisterByName(targetStr.c_str());
     
     // Initial record for root (start point)
+    // This is the "User Request" node.
     TraceRecord rootRecord = {};
-    rootRecord.id = rootItem.id;
-    rootRecord.parentId = 0;
+    rootRecord.id = ++idCounter; // 1
+    rootRecord.parentId = 0;     // 0 (Virtual Root)
     rootRecord.depth = 0;
-    rootRecord.seq = (uint64_t)currentPos.Sequence;
-    rootRecord.steps = (uint64_t)currentPos.Steps;
+    rootRecord.seq = currentPos.Sequence;
+    rootRecord.steps = currentPos.Steps;
+
+    // Update WorkItem to point to this root record
+    rootItem.parentId = rootRecord.id;
 
     std::string startMsg;
 
@@ -335,7 +342,7 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
         }
 
         TraceRecord record = {};
-        record.parentId = item.id;
+        record.parentId = item.parentId; // Connect to the node that requested this search
         record.depth = item.depth + 1;
 
         int currentInstId = ++idCounter;
@@ -347,8 +354,8 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
             continue;
         }
 
-        record.seq = (uint64_t)foundPos.Sequence;
-        record.steps = (uint64_t)foundPos.Steps;
+        record.seq = foundPos.Sequence;
+        record.steps = foundPos.Steps;
 
         // Disassemble
         UniqueCursor inspectCursor(pEngine->NewCursor());
@@ -387,9 +394,9 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
         // Logic & Branching
         bool handled = false;
 
-        auto AddItem = [&](ZydisDecodedOperand& op, Position pos, int depth) {
+        auto AddItem = [&](ZydisOperand& op, Position pos, int depth) {
             WorkItem newItem;
-            newItem.parentId = currentInstId;
+            newItem.parentId = currentInstId; // The new item is a child of THIS found instruction
             newItem.depth = depth;
             newItem.startPos = pos;
 
