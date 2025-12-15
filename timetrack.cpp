@@ -37,26 +37,15 @@ extern ProcessorArchitecture g_TargetCPUType;
 // Core Logic
 // ----------------------------------------------------------------------------
 
-
-struct __TargetReg {
-    ZydisRegister reg;
-    RegValue value;
-};
-
-bool __fastcall _MemoryWatchpointCallback(uintptr_t targetPtr, ICursor::MemoryWatchpointResult const&, IThreadView const* thread) {
-    __TargetReg target = *(__TargetReg*)targetPtr;
-
-    if (GetRegisterValue(GetGlobalContext(thread), target.reg) != target.value) {
-        return true;
-    }
-
-    return false;
-}
-
 // Find previous write to register
 // Returns Position::Invalid if not found.
 Position FindRegisterWrite(ICursor* cursor, ZydisRegister reg)
 {
+    struct __TargetReg {
+        ZydisRegister reg;
+        RegValue value;
+    };
+
     __TargetReg targetReg;
     targetReg.reg = reg;
 
@@ -68,16 +57,26 @@ Position FindRegisterWrite(ICursor* cursor, ZydisRegister reg)
         return Position::Invalid;
     }
 
-    GuestAddress curAddr = cursor->GetProgramCounter();
-    
-    cursor->AddMemoryWatchpoint({ GuestAddress::Min, (uint64_t)GuestAddress::Max, DataAccessMask::Execute });
+    auto _MemoryWatchpointCallback = [](uintptr_t targetPtr, ICursor::MemoryWatchpointResult const&, IThreadView const* thread) {
+        __TargetReg target = *(__TargetReg*)targetPtr;
+
+        if (GetRegisterValue(GetGlobalContext(thread), target.reg) != target.value) {
+            return true;
+        }
+
+        return false;
+    };
+
+    MemoryWatchpointData wd = { GuestAddress::Min, (uint64_t)GuestAddress::Max, DataAccessMask::Execute };
+
+    cursor->AddMemoryWatchpoint(wd);
     cursor->SetEventMask(EventMask::MemoryWatchpoint);
     cursor->SetReplayFlags(ReplayFlags::ReplayOnlyCurrentThread | ReplayFlags::ReplaySegmentsSequentially);
     cursor->SetMemoryWatchpointCallback(_MemoryWatchpointCallback, (uintptr_t)&targetReg);
 
     ICursorView::ReplayResult result = cursor->ReplayBackward();
 
-    cursor->RemoveMemoryWatchpoint({ GuestAddress::Min, (uint64_t)GuestAddress::Max, DataAccessMask::Execute });
+    cursor->RemoveMemoryWatchpoint(wd);
 
     if (result.StopReason == EventType::MemoryWatchpoint) {
         return cursor->GetPosition();
@@ -89,12 +88,14 @@ Position FindRegisterWrite(ICursor* cursor, ZydisRegister reg)
 // Find previous write to memory
 Position FindMemoryWrite(ICursor* cursor, uint64_t address, uint64_t size)
 {
-    cursor->AddMemoryWatchpoint({ (GuestAddress)address, size, DataAccessMask::Write });
+    MemoryWatchpointData wd = { (GuestAddress)address, size, DataAccessMask::Write };
+
+    cursor->AddMemoryWatchpoint(wd);
     cursor->SetEventMask(EventMask::MemoryWatchpoint);
 
     ICursorView::ReplayResult result = cursor->ReplayBackward();
 
-	cursor->RemoveMemoryWatchpoint({ (GuestAddress)address, size, DataAccessMask::Write });
+	cursor->RemoveMemoryWatchpoint(wd);
 
     if (result.StopReason == EventType::MemoryWatchpoint){
         Position pos = cursor->GetPosition() - 1;
@@ -186,9 +187,8 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
     }
 
 	CComQIPtr<IDebugControl> control(client);
-    CComQIPtr<IDebugSymbols3> symbols(client);
-    
-    if (!control || !symbols) return tree;
+
+    if (!control) return tree;
 
     std::stringstream ss(arg);
     std::string targetStr;
@@ -199,7 +199,10 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
         sizeStr = "0"; // Default size
     }
 
-    std::string tempFile = "timetrack_" + std::to_string(GetTickCount()) + ".bin";
+    char tempPath[MAX_PATH];
+    GetTempPathA(MAX_PATH, tempPath);
+
+    std::string tempFile = std::format("{}timetrack_{}.bin", tempPath, GetTickCount());
 
     std::ofstream outFile(tempFile, std::ios::binary);
     if (!outFile.is_open()) {
@@ -213,11 +216,6 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
     ZydisDecoder decoder;
     SetupZydisDecoder(&decoder, g_TargetCPUType);
 
-    ZydisFormatter formatter;
-    ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
-
-    Position currentPos = g_pGlobalCursor->GetPosition();
-    
     int idCounter = 0;
 
     WorkItem rootItem;
@@ -226,7 +224,7 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
     TraceRecord rootRecord = {};
     rootRecord.id = ++idCounter;
     rootRecord.parentId = 0;
-    rootRecord.pos = currentPos;
+    rootRecord.pos = inspectCursor->GetPosition();
 
     ZydisRegister TargetRegister = GetRegisterByName(targetStr.c_str());
 

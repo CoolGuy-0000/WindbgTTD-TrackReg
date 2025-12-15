@@ -26,24 +26,19 @@ inline Interface* QueryInterfaceByIoctl()
     WDBGEXTS_QUERY_INTERFACE wqi = {};
     wqi.Iid = &__uuidof(Interface);
     auto const ioctlSuccess = Ioctl(IG_QUERY_TARGET_INTERFACE, &wqi, sizeof(wqi));
-    if (!ioctlSuccess || wqi.Iface == nullptr)
+    if (!ioctlSuccess)
     {
-        throw std::invalid_argument("Unable to get TTD interface.");
+        throw std::invalid_argument("Unable to get interface.");
+    }
+    if (wqi.Iface == nullptr)
+    {
+        throw std::invalid_argument("Unable to get interface. Query succeeded, but interface was NULL.");
     }
     return static_cast<Interface*>(wqi.Iface);
 }
 
 HRESULT CALLBACK DebugExtensionInitialize(_Out_ ULONG* pVersion, _Out_ ULONG* pFlags) noexcept
 {
-    g_pReplayEngine = QueryInterfaceByIoctl<IReplayEngineView>();
-    g_pGlobalCursor = QueryInterfaceByIoctl<ICursorView>();
-
-    if(!g_pReplayEngine || !g_pGlobalCursor){
-        return E_FAIL;
-    }
-
-	g_TargetCPUType = GetGuestArchitecture(*g_pGlobalCursor);
-
     *pVersion = DEBUG_EXTENSION_VERSION(1, 0);
     *pFlags = 0;
 
@@ -58,6 +53,15 @@ HRESULT CALLBACK DebugExtensionInitialize(_Out_ ULONG* pVersion, _Out_ ULONG* pF
 #elif _WIN32
 			control->GetWindbgExtensionApis32(&ExtensionApis);
 #endif
+
+            g_pReplayEngine = QueryInterfaceByIoctl<IReplayEngineView>();
+            g_pGlobalCursor = QueryInterfaceByIoctl<ICursorView>();
+
+            if (!g_pReplayEngine || !g_pGlobalCursor) {
+                return E_FAIL;
+            }
+
+            g_TargetCPUType = GetGuestArchitecture(*g_pGlobalCursor);
             return S_OK;
         }
     }
