@@ -132,6 +132,17 @@ void PrintRecordTreeIterative(IDebugClient* client, std::map<int, std::vector<Tr
 
 	if (!control || !symbols) return;
     
+    ZydisDecoder decoder;
+    SetupZydisDecoder(&decoder, g_TargetCPUType);
+
+    ZydisFormatter formatter;
+    ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
+
+    char buffer[256];
+    BufferView bufferView{ buffer, sizeof(buffer) };
+    ZydisDecodedInstruction instruction;
+    ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
+
     UniqueCursor inspectCursor(g_pReplayEngine->NewCursor());
 
     struct StackState {
@@ -157,11 +168,25 @@ void PrintRecordTreeIterative(IDebugClient* client, std::map<int, std::vector<Tr
         int depth = current.depth;
 
         inspectCursor->SetPosition(record.pos);
-
+        
+        uint64_t curIP = (uint64_t)inspectCursor->GetProgramCounter();
+        
         std::string output;
-
         output.append(depth, ' ');
-        output += std::format("{}", record.pos);
+
+        output += std::format("<exec cmd=\"!tt {}\">{}</exec>\t", record.pos, record.pos);
+
+		symbols->GetNameByOffset(curIP, buffer, sizeof(buffer), NULL, NULL);
+        output += buffer;
+        output += "\t";
+
+        inspectCursor->QueryMemoryBuffer((GuestAddress)curIP, bufferView);
+
+        if (ZYAN_SUCCESS(ZydisDecoderDecodeFull(&decoder, buffer, 16, &instruction, operands))) {
+            ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, buffer, sizeof(buffer), curIP, ZYAN_NULL);
+            output += buffer;
+        }
+
         output += "\n";
 
         control->ControlledOutput(DEBUG_OUTCTL_THIS_CLIENT | DEBUG_OUTCTL_DML, DEBUG_OUTPUT_NORMAL, output.c_str());
