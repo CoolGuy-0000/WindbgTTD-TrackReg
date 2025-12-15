@@ -30,6 +30,7 @@
     <None Include="trackreg.def">
       <Filter>소스 파일</Filter>
     </None>
+    <None Include="vcpkg.json" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="disasm_helper.h">

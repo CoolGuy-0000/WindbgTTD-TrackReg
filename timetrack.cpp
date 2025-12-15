@@ -375,7 +375,7 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
         char symBuf[256];
         ULONG64 displacement = 0;
         if (SUCCEEDED(pSymbols->GetNameByOffset(ctx.Rip, symBuf, sizeof(symBuf), nullptr, &displacement))) {
-             std::string sym = std::format("{}+0x{:X}", symBuf, displacement);
+             std::string sym = std::format("{}+0x{:X} - ", symBuf, displacement);
              strncpy_s(record.symbol, sym.c_str(), _TRUNCATE);
         }
 
