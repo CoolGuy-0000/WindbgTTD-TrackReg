@@ -36,5 +36,17 @@
     <ClInclude Include="disasm_helper.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
+    <ClInclude Include="stdafx.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="Formatters.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="RegisterNameMapping.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="ReplayHelpers.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
   </ItemGroup>
 </Project>

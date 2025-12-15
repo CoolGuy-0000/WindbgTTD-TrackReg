@@ -1,14 +1,13 @@
-// DataFlowTracer.cpp
+// timetrack.cpp
 //
 // A WinDbg Extension that traces the origin of a value backwards in time using TTD.
+#include "stdafx.h"
 
 #include <Windows.h>
-#include <assert.h>
 #include <exception>
 #include <stdexcept>
 #include <vector>
 #include <string>
-#include <algorithm>
 #include <format>
 #include <iostream>
 #include <sstream>
@@ -16,11 +15,12 @@
 #include <fstream>
 #include <map>
 
+#include "Formatters.h"
+#include "ReplayHelpers.h"
+
 #include <TTD/IReplayEngine.h>
 #include <TTD/IReplayEngineStl.h>
-#include <TTD/IReplayEngineRegisters.h>
 
-#define KDEXT_64BIT
 #include <DbgEng.h>
 #include <WDBGEXTS.H>
 #include <atlcomcli.h>
@@ -28,130 +28,78 @@
 #include "disasm_helper.h"
 
 #include <Zydis/Zydis.h>
-#include <ZyCore/Zycore.h>
 
-using namespace TTD;
-using namespace Replay;
-
-template < typename Interface >
-inline Interface* QueryInterfaceByIoctl()
-{
-    WDBGEXTS_QUERY_INTERFACE wqi = {};
-    wqi.Iid = &__uuidof(Interface);
-    auto const ioctlSuccess = Ioctl(IG_QUERY_TARGET_INTERFACE, &wqi, sizeof(wqi));
-    if (!ioctlSuccess || wqi.Iface == nullptr)
-    {
-        throw std::invalid_argument("Unable to get TTD interface.");
-    }
-    return static_cast<Interface*>(wqi.Iface);
-}
+extern IReplayEngineView* g_pReplayEngine;
+extern ICursorView* g_pGlobalCursor;
+extern ProcessorArchitecture g_TargetCPUType;
 
 // ----------------------------------------------------------------------------
 // Core Logic
 // ----------------------------------------------------------------------------
 
-ULONG GetCurrentThreadId(IDebugClient* client)
-{
-    CComQIPtr<IDebugSystemObjects4> pSystemObjects(client);
 
-    if (pSystemObjects){
-        ULONG systemThreadId = 0;
+struct __TargetReg {
+    ZydisRegister reg;
+    RegValue value;
+};
 
-        if (SUCCEEDED(pSystemObjects->GetCurrentThreadSystemId(&systemThreadId)))
-        {
-			return systemThreadId;
-        }
+bool __fastcall _MemoryWatchpointCallback(uintptr_t targetPtr, ICursor::MemoryWatchpointResult const&, IThreadView const* thread) {
+    __TargetReg target = *(__TargetReg*)targetPtr;
+
+    if (GetRegisterValue(GetGlobalContext(thread), target.reg) != target.value) {
+        return true;
     }
-    return (ULONG)-1;
+
+    return false;
 }
 
 // Find previous write to register
 // Returns Position::Invalid if not found.
-static Position FindRegisterWrite(ULONG threadID, IReplayEngineView* engine, ZydisRegister reg, Position endPos)
+Position FindRegisterWrite(ICursor* cursor, ZydisRegister reg)
 {
-    UniqueCursor cursor(engine->NewCursor());
-    cursor->SetPosition(endPos);
+    __TargetReg targetReg;
+    targetReg.reg = reg;
 
-    RegValue lastValue = {0};
-    RegValue mask = {0};
-
-    // Setup mask based on register width
-    memset(&mask, 0xFF, sizeof(mask)); // Default all ones
-    uint32_t bits = ZydisRegisterGetWidth(ZYDIS_MACHINE_MODE_LONG_64, reg);
-    if (bits < 64) {
-        mask.val[0] = (1ULL << bits) - 1;
-        mask.val[1] = 0;
-    } else if (bits == 64) {
-        mask.val[1] = 0; // Clear high part
-    }
-
-    // Initial Value
-    AMD64_CONTEXT context = cursor->GetCrossPlatformContext().operator CROSS_PLATFORM_CONTEXT().Amd64Context;
+    GlobalContext context = GetGlobalContext(cursor);
     try {
-        lastValue = GetRegisterValue(context, reg);
+        targetReg.value = GetRegisterValue(context, reg);
     }
     catch (...) {
         return Position::Invalid;
     }
 
-    // Step backwards and check
-    for (int i = 0; i < 10000; i++){
-        cursor->ReplayBackward((StepCount)1);
+    GuestAddress curAddr = cursor->GetProgramCounter();
+    
+    cursor->AddMemoryWatchpoint({ GuestAddress::Min, (uint64_t)GuestAddress::Max, DataAccessMask::Execute });
+    cursor->SetEventMask(EventMask::MemoryWatchpoint);
+    cursor->SetReplayFlags(ReplayFlags::ReplayOnlyCurrentThread | ReplayFlags::ReplaySegmentsSequentially);
+    cursor->SetMemoryWatchpointCallback(_MemoryWatchpointCallback, (uintptr_t)&targetReg);
 
-        // Check thread?
-        // We are using single stepping, so we are still on the same thread effectively
-        // unless a context switch happened?
-        // TTD cursors track time, not threads explicitly during ReplayBackward(1).
-        // But we want to ensure we are seeing the register change on THIS thread.
-        // However, standard TTD replay usually follows execution flow.
-        // We should check if thread ID matches just to be safe, but GetThreadInfo overhead?
-        // Let's assume standard behavior: ReplayBackward moves global time.
-        // If thread switched, the register values of *our* thread wouldn't change until it runs again.
+    ICursorView::ReplayResult result = cursor->ReplayBackward();
 
-        // Actually, we must check the thread context.
-        // Get Context for specific thread
-        AMD64_CONTEXT x = cursor->GetCrossPlatformContext((ThreadId)threadID).operator CROSS_PLATFORM_CONTEXT().Amd64Context;
+    cursor->RemoveMemoryWatchpoint({ GuestAddress::Min, (uint64_t)GuestAddress::Max, DataAccessMask::Execute });
 
-        RegValue val = {0};
-        try { val = GetRegisterValue(x, reg); }
-        catch (...) { continue; }
-
-        bool changed = false;
-        for(int j=0; j<4; ++j) {
-            if ((val.val[j] & mask.val[j]) != (lastValue.val[j] & mask.val[j])) {
-                changed = true;
-                break;
-            }
-        }
-
-        if (changed) {
-            // Found change!
-            // The instruction that CAUSED the change is executed at this position?
-            // ReplayBackward(1) moves us to the state BEFORE the last instruction executed?
-            // No, TTD ReplayBackward moves "back in time".
-            // If we were at T=100 (Value=New), ReplayBackward(1) -> T=99.
-            // If Value at T=99 is Old, then the instruction at T=99 CAUSED the change to New.
-            // So the instruction is at the CURRENT cursor position.
-            return cursor->GetPosition();
-        }
+    if (result.StopReason == EventType::MemoryWatchpoint) {
+        return cursor->GetPosition();
     }
 
     return Position::Invalid;
 }
 
 // Find previous write to memory
-static Position FindMemoryWrite(IReplayEngineView* engine, uint64_t address, uint64_t size, Position endPos)
+Position FindMemoryWrite(ICursor* cursor, uint64_t address, uint64_t size)
 {
-    UniqueCursor cursor(engine->NewCursor());
-    cursor->SetPosition(endPos);
-
     cursor->AddMemoryWatchpoint({ (GuestAddress)address, size, DataAccessMask::Write });
     cursor->SetEventMask(EventMask::MemoryWatchpoint);
 
     ICursorView::ReplayResult result = cursor->ReplayBackward();
-    if (result.StopReason == EventType::MemoryWatchpoint)
-    {
-        return cursor->GetPosition() - 1; // Instruction that executed the write
+
+	cursor->RemoveMemoryWatchpoint({ (GuestAddress)address, size, DataAccessMask::Write });
+
+    if (result.StopReason == EventType::MemoryWatchpoint){
+        Position pos = cursor->GetPosition() - 1;
+		cursor->SetPosition(pos);
+        return pos;
     }
 
     return Position::Invalid;
@@ -168,74 +116,79 @@ struct WorkItem {
     ZydisRegister reg;
     uint64_t memAddr;
     uint32_t memSize;
-    Position startPos;
-    int depth;
 };
 
 // Binary struct for file
 struct TraceRecord {
     int id;
     int parentId;
-    int depth;
-
-    // Position info
-    uint64_t seq;
-    uint64_t steps;
-
-    // Text Data (fixed size for simplicity)
-    char symbol[256];
-    char instruction[256];
-    char description[256]; // e.g. "Origin: Zeroing"
-    char linkCmd[128]; // e.g. !tt ...
+    Position pos;
 };
 
-void PrintTraceDFS(IDebugControl* pControl, const std::map<int, std::vector<TraceRecord>>& tree, int currentId, const std::string& indent) {
-    auto it = tree.find(currentId);
-    if (it == tree.end()) return;
+void PrintRecordTreeIterative(IDebugClient* client, std::map<int, std::vector<TraceRecord>>& tree, int rootId = 0) {
+    CComQIPtr<IDebugControl> control(client);
+    CComQIPtr<IDebugSymbols3> symbols(client);
 
-    for (const auto& record : it->second) {
+	if (!control || !symbols) return;
+    
+    UniqueCursor inspectCursor(g_pReplayEngine->NewCursor());
+
+    struct StackState {
+        const TraceRecord* record;
+        int depth;
+    };
+
+    std::deque<StackState> workStack;
+
+    auto rootIt = tree.find(rootId);
+    if (rootIt != tree.end()) {
+        const auto& children = rootIt->second;
+        for (auto it = children.rbegin(); it != children.rend(); ++it) {
+            workStack.push_back({ &(*it), 0 });
+        }
+    }
+
+    while (!workStack.empty()) {
+        StackState current = workStack.back();
+        workStack.pop_back();
+
+        const TraceRecord& record = *current.record;
+        int depth = current.depth;
+
+        inspectCursor->SetPosition(record.pos);
+
         std::string output;
 
-        std::string currentIndent(record.depth * 2, ' ');
-
-        output += std::format("{}[{}] ", currentIndent, record.depth);
-
-        if (strlen(record.symbol) > 0) {
-            output += std::format("{}{} ", record.symbol, record.linkCmd);
-        } else {
-            output += std::format("{} ", record.linkCmd);
-        }
-
-        output += "\t\t";
-        output += record.instruction;
-
-        if (strlen(record.description) > 0) {
-            output += "\n";
-            output += currentIndent;
-            output += "\t\t";
-            output += record.description;
-        }
-
+        output.append(depth, ' ');
+        output += std::format("{}", record.pos);
         output += "\n";
 
-        pControl->ControlledOutput(DEBUG_OUTCTL_THIS_CLIENT | DEBUG_OUTCTL_DML, DEBUG_OUTPUT_NORMAL, output.c_str());
+        control->ControlledOutput(DEBUG_OUTCTL_THIS_CLIENT | DEBUG_OUTCTL_DML, DEBUG_OUTPUT_NORMAL, output.c_str());
 
-        // Recurse
-        PrintTraceDFS(pControl, tree, record.id, "");
+        auto childIt = tree.find(record.id);
+        if (childIt != tree.end()) {
+            const auto& children = childIt->second;
+            for (auto it = children.rbegin(); it != children.rend(); ++it) {
+                workStack.push_back({ &(*it), depth + 1 });
+            }
+        }
     }
 }
 
-void _TimeTrack(IDebugClient* client, const std::string& arg)
+std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const std::string& arg)
 {
-    auto pEngine = QueryInterfaceByIoctl<IReplayEngineView>();
-    auto pCursor = QueryInterfaceByIoctl<ICursorView>();
-	CComQIPtr<IDebugControl> pControl(client);
-    CComQIPtr<IDebugSymbols3> pSymbols(client);
-    
-    if (!pControl || !pSymbols) return;
+    std::map<int, std::vector<TraceRecord>> tree;
+    g_TargetCPUType = GetGuestArchitecture(*g_pGlobalCursor);
 
-    ULONG threadID = GetCurrentThreadId(client);
-    if (threadID == (ULONG)-1) return;
+    if (g_TargetCPUType == ProcessorArchitecture::Invalid || g_TargetCPUType == ProcessorArchitecture::Arm64 || g_TargetCPUType == ProcessorArchitecture::ARM32) {
+        dprintf("ERROR: Unsupported or unknown CPU architecture.\n");
+        return tree;
+    }
+
+	CComQIPtr<IDebugControl> control(client);
+    CComQIPtr<IDebugSymbols3> symbols(client);
+    
+    if (!control || !symbols) return tree;
 
     std::stringstream ss(arg);
     std::string targetStr;
@@ -246,74 +199,56 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
         sizeStr = "0"; // Default size
     }
 
-    // Temporary File Setup
-    char tempPath[MAX_PATH];
-    GetTempPathA(MAX_PATH, tempPath);
-    std::string tempFile = std::string(tempPath) + "timetrack_" + std::to_string(GetTickCount()) + ".bin";
+    std::string tempFile = "timetrack_" + std::to_string(GetTickCount()) + ".bin";
 
     std::ofstream outFile(tempFile, std::ios::binary);
     if (!outFile.is_open()) {
         dprintf("Failed to create temporary file: %s\n", tempFile.c_str());
-        return;
+        return tree;
     }
 
+    UniqueCursor inspectCursor(g_pReplayEngine->NewCursor());
+	inspectCursor->SetPosition(g_pGlobalCursor->GetPosition());
+
     ZydisDecoder decoder;
-    ZydisDecoderInit(&decoder, ZYDIS_MACHINE_MODE_LONG_64, ZYDIS_STACK_WIDTH_64);
+    SetupZydisDecoder(&decoder, g_TargetCPUType);
 
     ZydisFormatter formatter;
     ZydisFormatterInit(&formatter, ZYDIS_FORMATTER_STYLE_INTEL);
 
-    Position currentPos = pCursor->GetPosition((ThreadId)threadID);
+    Position currentPos = g_pGlobalCursor->GetPosition();
     
     int idCounter = 0;
 
-    // Root Item (Virtual start of trace)
     WorkItem rootItem;
-    rootItem.parentId = 0; // Will match the root record's ID
-    rootItem.depth = 0;
-    rootItem.startPos = currentPos;
+    rootItem.parentId = 0;
+
+    TraceRecord rootRecord = {};
+    rootRecord.id = ++idCounter;
+    rootRecord.parentId = 0;
+    rootRecord.pos = currentPos;
 
     ZydisRegister TargetRegister = GetRegisterByName(targetStr.c_str());
-    
-    // Initial record for root (start point)
-    // This is the "User Request" node.
-    TraceRecord rootRecord = {};
-    rootRecord.id = ++idCounter; // 1
-    rootRecord.parentId = 0;     // 0 (Virtual Root)
-    rootRecord.depth = 0;
-    rootRecord.seq = (uint64_t)currentPos.Sequence;
-    rootRecord.steps = (uint64_t)currentPos.Steps;
-
-    // Update WorkItem to point to this root record
-    rootItem.parentId = rootRecord.id;
-
-    std::string startMsg;
 
     if (TargetRegister == ZYDIS_REGISTER_NONE){
         rootItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
         DEBUG_VALUE val;
-        if (SUCCEEDED(pControl->Evaluate(arg.c_str(), DEBUG_VALUE_INT64, &val, NULL))) {
+        if (SUCCEEDED(control->Evaluate(arg.c_str(), DEBUG_VALUE_INT64, &val, NULL))) {
             rootItem.memAddr = val.I64;
             rootItem.memSize = std::stoul(sizeStr, nullptr, 0);
             if (rootItem.memSize == 0) rootItem.memSize = 8;
-            startMsg = std::format("Tracking origin of {:X}", rootItem.memAddr);
         } else {
             dprintf("Invalid argument.\n");
-            outFile.close(); DeleteFileA(tempFile.c_str());
-            return;
+            outFile.close();
+            DeleteFileA(tempFile.c_str());
+            return tree;
         }
     } else {
         rootItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
         rootItem.reg = TargetRegister;
-        rootItem.memSize = ZydisRegisterGetWidth(ZYDIS_MACHINE_MODE_LONG_64, TargetRegister) / 8;
-        startMsg = std::format("Tracking origin of {}", targetStr);
+        rootItem.memSize = _ZydisGetRegisterWidth(g_TargetCPUType, TargetRegister) / 8;
     }
 
-    strncpy_s(rootRecord.instruction, startMsg.c_str(), _TRUNCATE);
-    std::string link = std::format("<exec cmd=\"!tt {:X}:{:X}\"><b>{:X}:{:X}</b></exec>", (uint64_t)currentPos.Sequence, (uint64_t)currentPos.Steps, (uint64_t)currentPos.Sequence, (uint64_t)currentPos.Steps);
-    strncpy_s(rootRecord.linkCmd, link.c_str(), _TRUNCATE);
-
-    // Write root record
     outFile.write((char*)&rootRecord, sizeof(TraceRecord));
 
     std::deque<WorkItem> queue;
@@ -327,118 +262,74 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
         queue.pop_front();
         steps++;
 
-        if (item.depth > 20) continue;
-
         Position foundPos = Position::Invalid;
 
         if (item.type == ZYDIS_OPERAND_TYPE_REGISTER){
-            foundPos = FindRegisterWrite(threadID, pEngine, item.reg, item.startPos);
+            foundPos = FindRegisterWrite(inspectCursor.get(), item.reg);
         } else {
-            foundPos = FindMemoryWrite(pEngine, item.memAddr, item.memSize, item.startPos);
+            foundPos = FindMemoryWrite(inspectCursor.get(), item.memAddr, item.memSize);
+        }
+
+        if (foundPos == Position::Invalid) {
+            continue;
         }
 
         TraceRecord record = {};
         record.parentId = item.parentId; // Connect to the node that requested this search
-        record.depth = item.depth + 1;
 
         int currentInstId = ++idCounter;
         record.id = currentInstId;
-
-        if (foundPos == Position::Invalid) {
-            strncpy_s(record.description, "Origin not found (Trace start or limit reached).", _TRUNCATE);
-            outFile.write((char*)&record, sizeof(TraceRecord));
-            continue;
-        }
-
-        record.seq = (uint64_t)foundPos.Sequence;
-        record.steps = (uint64_t)foundPos.Steps;
+        record.pos = foundPos;
 
         // Disassemble
-        UniqueCursor inspectCursor(pEngine->NewCursor());
-        inspectCursor->SetPosition(foundPos);
-        AMD64_CONTEXT ctx = inspectCursor->GetCrossPlatformContext((ThreadId)threadID).operator CROSS_PLATFORM_CONTEXT().Amd64Context;
+
+        GlobalContext ctx = GetGlobalContext(inspectCursor.get());
 
         char buffer[256];
         BufferView bufferView{ buffer, sizeof(buffer) };
-        pCursor->QueryMemoryBuffer((GuestAddress)ctx.Rip, bufferView);
+        inspectCursor->QueryMemoryBuffer(inspectCursor->GetProgramCounter(), bufferView);
 
         ZydisDecodedInstruction instruction;
         ZydisDecodedOperand operands[ZYDIS_MAX_OPERAND_COUNT];
 
         if (ZYAN_FAILED(ZydisDecoderDecodeFull(&decoder, bufferView.BaseAddress, bufferView.Size, &instruction, operands))) {
-            strncpy_s(record.description, "Cannot Disassemble.", _TRUNCATE);
-            outFile.write((char*)&record, sizeof(TraceRecord));
             continue;
         }
-
-        // Symbol
-        char symBuf[256];
-        ULONG64 displacement = 0;
-        if (SUCCEEDED(pSymbols->GetNameByOffset(ctx.Rip, symBuf, sizeof(symBuf), nullptr, &displacement))) {
-             std::string sym = std::format("{}+0x{:X} - ", symBuf, displacement);
-             strncpy_s(record.symbol, sym.c_str(), _TRUNCATE);
-        }
-
-        std::string linkCmd = std::format("<exec cmd=\"!tt {:X}:{:X}\"><b>{:X}:{:X}</b></exec>",
-            (uint64_t)foundPos.Sequence, (uint64_t)foundPos.Steps, (uint64_t)foundPos.Sequence, (uint64_t)foundPos.Steps);
-        strncpy_s(record.linkCmd, linkCmd.c_str(), _TRUNCATE);
-
-        char instrTxt[256];
-        ZydisFormatterFormatInstruction(&formatter, &instruction, operands, instruction.operand_count_visible, instrTxt, sizeof(instrTxt), ctx.Rip, ZYAN_NULL);
-        strncpy_s(record.instruction, instrTxt, _TRUNCATE);
 
         // Logic & Branching
         bool handled = false;
 
-        auto AddItem = [&](ZydisDecodedOperand& op, Position pos, int depth) {
+        auto AddItem = [&](ZydisDecodedOperand& op, Position pos) {
             WorkItem newItem;
             newItem.parentId = currentInstId; // The new item is a child of THIS found instruction
-            newItem.depth = depth;
-            newItem.startPos = pos;
-
+            
             if (op.type == ZYDIS_OPERAND_TYPE_MEMORY) {
                 newItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
-                uint64_t base = op.mem.base == ZYDIS_REGISTER_NONE ? 0 : GetRegisterValue(ctx, op.mem.base).val[0];
-                uint64_t index = op.mem.index == ZYDIS_REGISTER_NONE ? 0 : GetRegisterValue(ctx, op.mem.index).val[0];
+                uint64_t base = op.mem.base == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.base);
+                uint64_t index = op.mem.index == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.index);
                 newItem.memAddr = base + (index * op.mem.scale) + op.mem.disp.value;
                 newItem.memSize = op.size / 8;
                 if (newItem.memSize == 0) newItem.memSize = 8;
             } else if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) {
                 newItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
                 newItem.reg = op.reg.value;
+                rootItem.memSize = _ZydisGetRegisterWidth(g_TargetCPUType, TargetRegister) / 8;
             } else {
                 return;
             }
             queue.push_back(newItem);
         };
 
-        if (instruction.mnemonic == ZYDIS_MNEMONIC_SYSCALL) {
-            strncpy_s(record.description, "Origin: System Call.", _TRUNCATE);
-            handled = true;
-        }
-        else if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA) {
-            strncpy_s(record.description, "Origin: Address Calculation (LEA).", _TRUNCATE);
-            handled = true;
-        }
-        else if (instruction.mnemonic == ZYDIS_MNEMONIC_XOR &&
-                 operands[0].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                 operands[1].type == ZYDIS_OPERAND_TYPE_REGISTER &&
-                 operands[0].reg.value == operands[1].reg.value) {
-            strncpy_s(record.description, "Origin: Zeroing idiom.", _TRUNCATE);
-            handled = true;
-        }
-        else if (instruction.mnemonic == ZYDIS_MNEMONIC_PUSH) {
-            AddItem(operands[0], foundPos, item.depth + 1);
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_PUSH) {
+            AddItem(operands[0], foundPos);
             handled = true;
         }
         else if (instruction.mnemonic == ZYDIS_MNEMONIC_POP) {
             WorkItem newItem;
             newItem.parentId = currentInstId;
-            newItem.depth = item.depth + 1;
-            newItem.startPos = foundPos;
             newItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
-            newItem.memAddr = ctx.Rsp;
-            newItem.memSize = 8;
+            newItem.memAddr = (uint64_t)inspectCursor->GetStackPointer();
+            newItem.memSize = GetCPUBusSize();
             queue.push_back(newItem);
             handled = true;
         }
@@ -449,7 +340,7 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
                  instruction.mnemonic == ZYDIS_MNEMONIC_MOVUPS ||
                  instruction.mnemonic == ZYDIS_MNEMONIC_MOVDQA ||
                  instruction.mnemonic == ZYDIS_MNEMONIC_MOVDQU) {
-            AddItem(operands[1], foundPos, item.depth + 1);
+            AddItem(operands[1], foundPos);
             handled = true;
         }
         else if (instruction.mnemonic == ZYDIS_MNEMONIC_ADD ||
@@ -459,44 +350,33 @@ void _TimeTrack(IDebugClient* client, const std::string& arg)
                  instruction.mnemonic == ZYDIS_MNEMONIC_XOR ||
                  instruction.mnemonic == ZYDIS_MNEMONIC_IMUL) {
             if (instruction.operand_count >= 2)
-                AddItem(operands[1], foundPos, item.depth + 1);
+                AddItem(operands[1], foundPos);
 
-            AddItem(operands[0], foundPos, item.depth + 1);
+            AddItem(operands[0], foundPos);
             handled = true;
         }
-
-        if (!handled) {
-            strncpy_s(record.description, "Stopping: Unhandled or terminal instruction.", _TRUNCATE);
-        }
-
-        // Write the record for this instruction
+        
         outFile.write((char*)&record, sizeof(TraceRecord));
     }
 
     outFile.close();
 
-    // ------------------------------------------------------------------------
-    // Post-Processing: Read File and Print Tree
-    // ------------------------------------------------------------------------
-
     std::ifstream inFile(tempFile, std::ios::binary);
     if (!inFile.is_open()) {
         dprintf("Error reading trace file.\n");
-        return;
+        return tree;
     }
 
-    std::map<int, std::vector<TraceRecord>> tree;
     TraceRecord rec;
 
     while (inFile.read((char*)&rec, sizeof(TraceRecord))) {
         tree[rec.parentId].push_back(rec);
     }
+
     inFile.close();
 
-    // Print Tree via DFS from Virtual Root (0)
-    PrintTraceDFS(pControl, tree, 0, "");
-
     DeleteFileA(tempFile.c_str());
+    return tree;
 }
 
 HRESULT CALLBACK timetrack(IDebugClient* const pClient, const char* const pArgs) noexcept
@@ -510,13 +390,15 @@ try
 
     std::string arg = pArgs;
 
-    _TimeTrack(pClient, arg);
+    auto tree = _TimeTrack(pClient, arg);
+
+    PrintRecordTreeIterative(pClient, tree);
 
     return S_OK;
 }
 catch (const std::exception& e)
 {
-    dprintf("Error: %s\n", e.what());
+    dprintf("ERROR: %s\n", e.what());
     return E_FAIL;
 }
 catch (...)
