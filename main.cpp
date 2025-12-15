@@ -13,7 +13,11 @@
 using namespace TTD;
 using namespace Replay;
 
+#if defined(_WIN64)
+WINDBG_EXTENSION_APIS64 ExtensionApis;
+#elif defined(_WIN32)
 WINDBG_EXTENSION_APIS ExtensionApis;
+#endif
 
 IReplayEngineView* g_pReplayEngine;
 ICursorView* g_pGlobalCursor;
@@ -51,7 +55,7 @@ HRESULT CALLBACK DebugExtensionInitialize(_Out_ ULONG* pVersion, _Out_ ULONG* pF
 #ifdef _WIN64
             control->GetWindbgExtensionApis64(&ExtensionApis);
 #elif _WIN32
-			control->GetWindbgExtensionApis32(&ExtensionApis);
+			control->GetWindbgExtensionApis32((WINDBG_EXTENSION_APIS32*)&ExtensionApis);
 #endif
 
             g_pReplayEngine = QueryInterfaceByIoctl<IReplayEngineView>();
