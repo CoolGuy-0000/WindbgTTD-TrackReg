@@ -60,7 +60,18 @@ Position FindRegisterWrite(ICursor* cursor, ZydisRegister reg)
     auto _MemoryWatchpointCallback = [](uintptr_t targetPtr, ICursor::MemoryWatchpointResult const&, IThreadView const* thread) {
         __TargetReg target = *(__TargetReg*)targetPtr;
 
-        if (GetRegisterValue(GetGlobalContext(thread), target.reg) != target.value) {
+        RegValue val;
+
+        try
+        {
+            val = GetRegisterValue(GetGlobalContext(thread), target.reg);
+        }
+        catch (...)
+        {
+            return false;
+        }
+
+        if (val != target.value) {
             return true;
         }
 
@@ -117,6 +128,7 @@ struct WorkItem {
     ZydisRegister reg;
     uint64_t memAddr;
     uint32_t memSize;
+    Position pos;
 };
 
 // Binary struct for file
@@ -176,8 +188,9 @@ void PrintRecordTreeIterative(IDebugClient* client, std::map<int, std::vector<Tr
 
         output += std::format("<exec cmd=\"!tt {}\">{}</exec>\t", record.pos, record.pos);
 
-		symbols->GetNameByOffset(curIP, buffer, sizeof(buffer), NULL, NULL);
-        output += buffer;
+        uint64_t uDisp;
+		symbols->GetNameByOffset(curIP, buffer, sizeof(buffer), NULL, &uDisp);
+        output += std::format("{}+{:X}", buffer, uDisp);
         output += "\t";
 
         inspectCursor->QueryMemoryBuffer((GuestAddress)curIP, bufferView);
@@ -218,11 +231,17 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
     std::stringstream ss(arg);
     std::string targetStr;
     std::string sizeStr;
-
+    std::string maxStepsStr;
+    
     ss >> targetStr;
     if (!(ss >> sizeStr)) {
-        sizeStr = "0"; // Default size
+        sizeStr = "0"; // Default
     }
+    if (!(ss >> maxStepsStr)) {
+        maxStepsStr = "50"; // Default
+    }
+    
+    int maxSteps = std::stoul(maxStepsStr, nullptr, 0);
 
     char tempPath[MAX_PATH];
     GetTempPathA(MAX_PATH, tempPath);
@@ -245,6 +264,7 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
 
     WorkItem rootItem;
     rootItem.parentId = 0;
+	rootItem.pos = inspectCursor->GetPosition();
 
     TraceRecord rootRecord = {};
     rootRecord.id = ++idCounter;
@@ -278,12 +298,14 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
     queue.push_back(rootItem);
 
     int steps = 0;
-    const int maxSteps = 1000;
+    
 
     while(!queue.empty() && steps < maxSteps) {
         WorkItem item = queue.front();
         queue.pop_front();
         steps++;
+
+		inspectCursor->SetPosition(item.pos);
 
         Position foundPos = Position::Invalid;
 
@@ -325,11 +347,12 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
         auto AddItem = [&](ZydisDecodedOperand& op, Position pos) {
             WorkItem newItem;
             newItem.parentId = currentInstId; // The new item is a child of THIS found instruction
-            
+            newItem.pos = inspectCursor->GetPosition();
+
             if (op.type == ZYDIS_OPERAND_TYPE_MEMORY) {
                 newItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
-                uint64_t base = op.mem.base == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.base);
-                uint64_t index = op.mem.index == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.index);
+                uint64_t base = op.mem.base == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.base, false);
+                uint64_t index = op.mem.index == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.index, false);
                 newItem.memAddr = base + (index * op.mem.scale) + op.mem.disp.value;
                 newItem.memSize = op.size / 8;
                 if (newItem.memSize == 0) newItem.memSize = 8;
@@ -350,6 +373,7 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
         else if (instruction.mnemonic == ZYDIS_MNEMONIC_POP) {
             WorkItem newItem;
             newItem.parentId = currentInstId;
+            newItem.pos = inspectCursor->GetPosition();
             newItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
             newItem.memAddr = (uint64_t)inspectCursor->GetStackPointer();
             newItem.memSize = GetCPUBusSize();
@@ -407,7 +431,7 @@ try
 {
     if (pArgs == nullptr || strlen(pArgs) == 0)
     {
-        dprintf("Usage: !timetrack <register or memory(0x7ffff0000 or RBP+30h)> <size>\n");
+        dprintf("Usage: !timetrack <register or memory(0x7ffff0000 or RBP+30h)> <size> <Max Steps=50>\n");
         return S_OK;
     }
 

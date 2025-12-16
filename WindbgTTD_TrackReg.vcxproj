@@ -81,7 +81,7 @@
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <IntDir>dummy\$(Configuration)\</IntDir>
-    <TargetName>trackreg</TargetName>
+    <TargetName>trackreg32</TargetName>
     <OutDir>$(SolutionDir)$(Configuration)\$(Platform)\</OutDir>
   </PropertyGroup>
   <PropertyGroup Label="Vcpkg">
