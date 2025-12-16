@@ -121,15 +121,7 @@ Position FindMemoryWrite(ICursor* cursor, uint64_t address, uint64_t size)
 // Main Logic
 // ----------------------------------------------------------------------------
 
-struct WorkItem {
-    int parentId; // The ID of the TraceRecord that spawned this work item
-
-    ZydisOperandType type;
-    ZydisRegister reg;
-    uint64_t memAddr;
-    uint32_t memSize;
-    Position pos;
-};
+#pragma pack(push, 1)
 
 // Binary struct for file
 struct TraceRecord {
@@ -137,6 +129,8 @@ struct TraceRecord {
     int parentId;
     Position pos;
 };
+
+#pragma pack(pop)
 
 void PrintRecordTreeIterative(IDebugClient* client, std::map<int, std::vector<TraceRecord>>& tree, int rootId = 0) {
     CComQIPtr<IDebugControl> control(client);
@@ -260,6 +254,16 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
     ZydisDecoder decoder;
     SetupZydisDecoder(&decoder, g_TargetCPUType);
 
+    struct WorkItem {
+        int parentId; // The ID of the TraceRecord that spawned this work item
+        int id;
+        ZydisOperandType type;
+        ZydisRegister reg;
+        uint64_t memAddr;
+        uint32_t memSize;
+        Position pos;
+    };
+
     int idCounter = 0;
 
     WorkItem rootItem;
@@ -268,6 +272,8 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
 
     TraceRecord rootRecord = {};
     rootRecord.id = ++idCounter;
+    rootItem.id = idCounter;
+
     rootRecord.parentId = 0;
     rootRecord.pos = inspectCursor->GetPosition();
 
@@ -320,11 +326,12 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
         }
 
         TraceRecord record = {};
-        record.parentId = item.parentId; // Connect to the node that requested this search
+        record.parentId = item.id; // Connect to the node that requested this search
+        record.pos = foundPos;
 
         int currentInstId = ++idCounter;
         record.id = currentInstId;
-        record.pos = foundPos;
+        
 
         // Disassemble
 
@@ -346,7 +353,8 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
 
         auto AddItem = [&](ZydisDecodedOperand& op, Position pos) {
             WorkItem newItem;
-            newItem.parentId = currentInstId; // The new item is a child of THIS found instruction
+            newItem.id = record.id;
+            newItem.parentId = item.id; // The new item is a child of THIS found instruction
             newItem.pos = inspectCursor->GetPosition();
 
             if (op.type == ZYDIS_OPERAND_TYPE_MEMORY) {
@@ -395,11 +403,15 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
                  instruction.mnemonic == ZYDIS_MNEMONIC_AND ||
                  instruction.mnemonic == ZYDIS_MNEMONIC_OR ||
                  instruction.mnemonic == ZYDIS_MNEMONIC_XOR ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_IMUL) {
+                 instruction.mnemonic == ZYDIS_MNEMONIC_IMUL ||
+                 instruction.mnemonic == ZYDIS_MNEMONIC_SHL ||
+                 instruction.mnemonic == ZYDIS_MNEMONIC_SHR) {
+
+            AddItem(operands[0], foundPos);
+
             if (instruction.operand_count >= 2)
                 AddItem(operands[1], foundPos);
 
-            AddItem(operands[0], foundPos);
             handled = true;
         }
         
