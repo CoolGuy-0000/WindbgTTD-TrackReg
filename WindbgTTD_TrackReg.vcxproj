@@ -87,6 +87,9 @@
   <PropertyGroup Label="Vcpkg">
     <VcpkgEnableManifest>true</VcpkgEnableManifest>
   </PropertyGroup>
+  <PropertyGroup Label="Vcpkg" Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <VcpkgUseStatic>true</VcpkgUseStatic>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
@@ -137,7 +140,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>true</IntrinsicFunctions>
+      <IntrinsicFunctions>false</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
@@ -145,22 +148,29 @@
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/D "ZYCORE_STATIC_BUILD" %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <Optimization>MaxSpeed</Optimization>
+      <Optimization>Disabled</Optimization>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <ModuleDefinitionFile>trackreg.def</ModuleDefinitionFile>
       <AdditionalLibraryDirectories>%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <AdditionalDependencies>dbgeng.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>dbgeng.lib;d2d1.lib;dwrite.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="callviz.cpp" />
+    <ClCompile Include="GUI\BaseUI.cpp" />
+    <ClCompile Include="GUI\GUIWnd.cpp" />
+    <ClCompile Include="GUI\TimeTrackGUIWnd.cpp" />
+    <ClCompile Include="GUI\UIButton.cpp" />
     <ClCompile Include="timetrack.cpp" />
     <ClCompile Include="disasm_helper.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="utils.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="placeholder" />
     <None Include="trackreg.def" />
     <None Include="packages.config" />
     <None Include="vcpkg.json" />
@@ -168,9 +178,12 @@
   <ItemGroup>
     <ClInclude Include="disasm_helper.h" />
     <ClInclude Include="Formatters.h" />
+    <ClInclude Include="GUI\TimeTrackGUI.h" />
+    <ClInclude Include="GUI\UIButton.h" />
     <ClInclude Include="RegisterNameMapping.h" />
     <ClInclude Include="ReplayHelpers.h" />
     <ClInclude Include="stdafx.h" />
+    <ClInclude Include="utils.h" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

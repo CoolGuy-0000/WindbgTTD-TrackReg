@@ -178,7 +178,7 @@ void PrintRecordTreeIterative(IDebugClient* client, std::map<int, std::vector<Tr
         uint64_t curIP = (uint64_t)inspectCursor->GetProgramCounter();
         
         std::string output;
-        output.append(depth, ' ');
+        output.append(depth, '-');
 
         output += std::format("<exec cmd=\"!tt {}\">{}</exec>\t", record.pos, record.pos);
 
