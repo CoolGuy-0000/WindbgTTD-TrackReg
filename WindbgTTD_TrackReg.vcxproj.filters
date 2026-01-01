@@ -45,6 +45,15 @@
     <ClCompile Include="GUI\TimeTrackGUIWnd.cpp">
       <Filter>소스 파일\GUI</Filter>
     </ClCompile>
+    <ClCompile Include="timetrack_gui.cpp">
+      <Filter>소스 파일</Filter>
+    </ClCompile>
+    <ClCompile Include="GUI\TimeTrackVisualizerWnd.cpp">
+      <Filter>소스 파일\GUI</Filter>
+    </ClCompile>
+    <ClCompile Include="GUI\UIGraphNode.cpp">
+      <Filter>소스 파일\GUI</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <None Include="packages.config" />
@@ -77,6 +86,21 @@
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="GUI\UIButton.h">
+      <Filter>소스 파일\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="TimeTrackLogic.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="TraceRecord.h">
+      <Filter>소스 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="GUI\TimeTrackVisualizerWnd.h">
+      <Filter>소스 파일\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="GUI\UIGraphEdges.h">
+      <Filter>소스 파일\GUI</Filter>
+    </ClInclude>
+    <ClInclude Include="GUI\UIGraphNode.h">
       <Filter>소스 파일\GUI</Filter>
     </ClInclude>
   </ItemGroup>
