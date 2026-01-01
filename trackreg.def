@@ -4,5 +4,4 @@ EXPORTS
 	DebugExtensionUninitialize
 
 	timetrack
-	timetrackgui
 	callviz
