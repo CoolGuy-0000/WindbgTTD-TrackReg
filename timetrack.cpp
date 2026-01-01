@@ -28,6 +28,8 @@
 #include "disasm_helper.h"
 
 #include <Zydis/Zydis.h>
+#include "TraceRecord.h"
+#include "TimeTrackLogic.h"
 
 extern IReplayEngineView* g_pReplayEngine;
 extern ICursorView* g_pGlobalCursor;
@@ -121,16 +123,6 @@ Position FindMemoryWrite(ICursor* cursor, uint64_t address, uint64_t size)
 // Main Logic
 // ----------------------------------------------------------------------------
 
-#pragma pack(push, 1)
-
-// Binary struct for file
-struct TraceRecord {
-    int id;
-    int parentId;
-    Position pos;
-};
-
-#pragma pack(pop)
 
 void PrintRecordTreeIterative(IDebugClient* client, std::map<int, std::vector<TraceRecord>>& tree, int rootId = 0) {
     CComQIPtr<IDebugControl> control(client);
