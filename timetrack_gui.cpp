@@ -3,6 +3,8 @@
 #include <map>
 #include <vector>
 #include <string>
+#include "Formatters.h"
+#include "ReplayHelpers.h"
 #include <format>
 #include "GUI/TimeTrackVisualizerWnd.h"
 #include <DbgEng.h>
@@ -12,10 +14,6 @@
 
 #include <TTD/IReplayEngine.h>
 #include <TTD/IReplayEngineStl.h>
-
-
-#include "Formatters.h"
-#include "ReplayHelpers.h"
 
 #include <DbgEng.h>
 #include <WDBGEXTS.H>
@@ -93,7 +91,7 @@ try
             }
 
             node.label = std::wstring(symName.begin(), symName.end());
-            node.details = std::format("Seq: {:X}", rec.pos.Sequence);
+            node.details = std::format("Seq: {}", rec.pos);
 
             vizData[parentId].push_back(node);
         }

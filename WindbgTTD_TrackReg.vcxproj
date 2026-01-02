@@ -171,7 +171,9 @@
     <ClCompile Include="timetrack.cpp" />
     <ClCompile Include="disasm_helper.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="timetrack_gui.cpp" />
+    <ClCompile Include="timetrack_gui.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="utils.cpp" />
   </ItemGroup>
   <ItemGroup>
