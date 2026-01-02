@@ -159,7 +159,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="callviz.cpp" />
+    <ClCompile Include="callviz.cpp">
+      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
+    </ClCompile>
     <ClCompile Include="GUI\BaseUI.cpp" />
     <ClCompile Include="GUI\GUIWnd.cpp" />
     <ClCompile Include="GUI\TimeTrackGUIWnd.cpp" />

@@ -6,9 +6,24 @@
 #include <format>
 #include "GUI/TimeTrackVisualizerWnd.h"
 #include <DbgEng.h>
-#include <TTD/IReplayEngine.h>
+
 #include "TraceRecord.h"
 #include "TimeTrackLogic.h"
+
+#include <TTD/IReplayEngine.h>
+#include <TTD/IReplayEngineStl.h>
+
+
+#include "Formatters.h"
+#include "ReplayHelpers.h"
+
+#include <DbgEng.h>
+#include <WDBGEXTS.H>
+#include <atlcomcli.h>
+
+
+using namespace TTD;
+using namespace Replay;
 
 HRESULT CALLBACK timetrackgui(IDebugClient* const pClient, const char* const pArgs) noexcept
 try
@@ -66,7 +81,7 @@ try
 
             // Get Info
             cursor->SetPosition(rec.pos);
-            uint64_t ip = cursor->GetProgramCounter();
+            uint64_t ip = (uint64_t)cursor->GetProgramCounter();
 
             char buffer[256];
             uint64_t disp = 0;
