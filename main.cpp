@@ -10,10 +10,6 @@
 #include <wdbgexts.h>
 #include <atlcomcli.h>
 
-#include <d2d1.h>
-#include <dwrite.h>
-#include "GUI/TimeTrackGUI.h"
-
 using namespace TTD;
 using namespace Replay;
 
@@ -77,28 +73,4 @@ HRESULT CALLBACK DebugExtensionInitialize(_Out_ ULONG* pVersion, _Out_ ULONG* pF
     return E_FAIL;
 }
 
-void CALLBACK DebugExtensionUninitialize() noexcept {
-    if (TimeTrackGUI::GUIWnd::m_hThread) {
-        DWORD tid = GetThreadId(TimeTrackGUI::GUIWnd::m_hThread);
-        if (tid != 0) {
-            PostThreadMessage(tid, WM_TTGUI_DESTROY, 0, 0);
-            if (TimeTrackGUI::GUIWnd::m_hThreadExitEvent) {
-                WaitForSingleObject(TimeTrackGUI::GUIWnd::m_hThreadExitEvent, INFINITE);
-                CloseHandle(TimeTrackGUI::GUIWnd::m_hThreadExitEvent);
-                TimeTrackGUI::GUIWnd::m_hThreadExitEvent = NULL;
-            }
-            else {
-                // 이벤트가 없으면 기존 방식 유지(후방 호환)
-                WaitForSingleObject(TimeTrackGUI::GUIWnd::m_hThread, 5000);
-            }
-            return;
-        }
-    }
-
-    PostMessage(HWND_BROADCAST, WM_TTGUI_DESTROY, 0, 0);
-    if (TimeTrackGUI::GUIWnd::m_hThreadExitEvent) {
-        WaitForSingleObject(TimeTrackGUI::GUIWnd::m_hThreadExitEvent, INFINITE);
-        CloseHandle(TimeTrackGUI::GUIWnd::m_hThreadExitEvent);
-        TimeTrackGUI::GUIWnd::m_hThreadExitEvent = NULL;
-    }
-}
+void CALLBACK DebugExtensionUninitialize() noexcept {}

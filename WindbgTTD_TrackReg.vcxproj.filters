@@ -13,9 +13,6 @@
       <UniqueIdentifier>{67DA6AB6-F800-4c08-8B7A-83BB121AAD01}</UniqueIdentifier>
       <Extensions>rc;ico;cur;bmp;dlg;rc2;rct;bin;rgs;gif;jpg;jpeg;jpe;resx;tiff;tif;png;wav;mfcribbon-ms</Extensions>
     </Filter>
-    <Filter Include="소스 파일\GUI">
-      <UniqueIdentifier>{2a485b19-26c6-4540-8365-7abe84df5494}</UniqueIdentifier>
-    </Filter>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="timetrack.cpp">
@@ -27,32 +24,8 @@
     <ClCompile Include="disasm_helper.cpp">
       <Filter>소스 파일</Filter>
     </ClCompile>
-    <ClCompile Include="callviz.cpp">
-      <Filter>소스 파일</Filter>
-    </ClCompile>
-    <ClCompile Include="GUI\GUIWnd.cpp">
-      <Filter>소스 파일\GUI</Filter>
-    </ClCompile>
     <ClCompile Include="utils.cpp">
       <Filter>소스 파일</Filter>
-    </ClCompile>
-    <ClCompile Include="GUI\BaseUI.cpp">
-      <Filter>소스 파일\GUI</Filter>
-    </ClCompile>
-    <ClCompile Include="GUI\UIButton.cpp">
-      <Filter>소스 파일\GUI</Filter>
-    </ClCompile>
-    <ClCompile Include="GUI\TimeTrackGUIWnd.cpp">
-      <Filter>소스 파일\GUI</Filter>
-    </ClCompile>
-    <ClCompile Include="timetrack_gui.cpp">
-      <Filter>소스 파일</Filter>
-    </ClCompile>
-    <ClCompile Include="GUI\TimeTrackVisualizerWnd.cpp">
-      <Filter>소스 파일\GUI</Filter>
-    </ClCompile>
-    <ClCompile Include="GUI\UIGraphNode.cpp">
-      <Filter>소스 파일\GUI</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -79,29 +52,14 @@
     <ClInclude Include="ReplayHelpers.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
-    <ClInclude Include="GUI\TimeTrackGUI.h">
-      <Filter>소스 파일\GUI</Filter>
-    </ClInclude>
     <ClInclude Include="utils.h">
       <Filter>소스 파일</Filter>
-    </ClInclude>
-    <ClInclude Include="GUI\UIButton.h">
-      <Filter>소스 파일\GUI</Filter>
     </ClInclude>
     <ClInclude Include="TimeTrackLogic.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
     <ClInclude Include="TraceRecord.h">
       <Filter>소스 파일</Filter>
-    </ClInclude>
-    <ClInclude Include="GUI\TimeTrackVisualizerWnd.h">
-      <Filter>소스 파일\GUI</Filter>
-    </ClInclude>
-    <ClInclude Include="GUI\UIGraphEdges.h">
-      <Filter>소스 파일\GUI</Filter>
-    </ClInclude>
-    <ClInclude Include="GUI\UIGraphNode.h">
-      <Filter>소스 파일\GUI</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

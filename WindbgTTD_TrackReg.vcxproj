@@ -140,7 +140,7 @@
     <ClCompile>
       <WarningLevel>Level3</WarningLevel>
       <FunctionLevelLinking>true</FunctionLevelLinking>
-      <IntrinsicFunctions>false</IntrinsicFunctions>
+      <IntrinsicFunctions>true</IntrinsicFunctions>
       <SDLCheck>true</SDLCheck>
       <PreprocessorDefinitions>NDEBUG;_CONSOLE;%(PreprocessorDefinitions)</PreprocessorDefinitions>
       <ConformanceMode>true</ConformanceMode>
@@ -148,7 +148,7 @@
       <AdditionalIncludeDirectories>%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
       <AdditionalOptions>/D "ZYCORE_STATIC_BUILD" %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
-      <Optimization>Disabled</Optimization>
+      <Optimization>MaxSpeed</Optimization>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -159,21 +159,9 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="callviz.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="GUI\BaseUI.cpp" />
-    <ClCompile Include="GUI\GUIWnd.cpp" />
-    <ClCompile Include="GUI\TimeTrackGUIWnd.cpp" />
-    <ClCompile Include="GUI\TimeTrackVisualizerWnd.cpp" />
-    <ClCompile Include="GUI\UIButton.cpp" />
-    <ClCompile Include="GUI\UIGraphNode.cpp" />
     <ClCompile Include="timetrack.cpp" />
     <ClCompile Include="disasm_helper.cpp" />
     <ClCompile Include="main.cpp" />
-    <ClCompile Include="timetrack_gui.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|x64'">true</ExcludedFromBuild>
-    </ClCompile>
     <ClCompile Include="utils.cpp" />
   </ItemGroup>
   <ItemGroup>
@@ -185,11 +173,6 @@
   <ItemGroup>
     <ClInclude Include="disasm_helper.h" />
     <ClInclude Include="Formatters.h" />
-    <ClInclude Include="GUI\TimeTrackGUI.h" />
-    <ClInclude Include="GUI\TimeTrackVisualizerWnd.h" />
-    <ClInclude Include="GUI\UIButton.h" />
-    <ClInclude Include="GUI\UIGraphEdges.h" />
-    <ClInclude Include="GUI\UIGraphNode.h" />
     <ClInclude Include="RegisterNameMapping.h" />
     <ClInclude Include="ReplayHelpers.h" />
     <ClInclude Include="stdafx.h" />
