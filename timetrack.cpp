@@ -14,6 +14,7 @@
 #include <deque>
 #include <fstream>
 #include <map>
+#include <set>
 
 #include "Formatters.h"
 #include "ReplayHelpers.h"
@@ -289,7 +290,6 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::st
 
     int steps = 0;
 
-
     while (!queue.empty() && steps < maxSteps) {
         WorkItem item = queue.front();
         queue.pop_front();
@@ -306,18 +306,8 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::st
             foundPos = FindMemoryWrite(inspectCursor.get(), item.memAddr, item.memSize);
         }
 
-        if (foundPos == Position::Invalid) {
-            continue;
-        }
-
-        TraceRecord record = {};
-        record.parentId = item.id; // Connect to the node that requested this search
-        record.pos = foundPos;
-
-        int currentInstId = ++idCounter;
-        record.id = currentInstId;
-
-
+        if (foundPos == Position::Invalid) continue;
+        
         // Disassemble
 
         GlobalContext ctx = GetGlobalContext(inspectCursor.get());
@@ -333,65 +323,63 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::st
             continue;
         }
 
-        // Logic & Branching
-        bool handled = false;
+        auto AddItem = [&](ZydisDecodedOperand& op) {
+                int uniqueId = ++idCounter;
 
-        auto AddItem = [&](ZydisDecodedOperand& op, Position pos) {
-            WorkItem newItem;
-            newItem.id = record.id;
-            newItem.parentId = item.id; // The new item is a child of THIS found instruction
-            newItem.pos = inspectCursor->GetPosition();
+                TraceRecord record = {};
+                record.id = uniqueId;
+                record.parentId = item.id; // 요청한 부모 노드에 연결
+                record.pos = foundPos;     // 현재 명령어의 위치
 
-            if (op.type == ZYDIS_OPERAND_TYPE_MEMORY) {
-                newItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
-                uint64_t base = op.mem.base == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.base, false);
-                uint64_t index = op.mem.index == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.index, false);
+                outFile.write((char*)&record, sizeof(TraceRecord)); // 개별 저장!
 
-                // Scale이 0인 경우 1로 취급 (보통 Zydis는 0이면 register_none이나 마찬가지지만 안전하게)
-                uint64_t scale = (op.mem.scale == 0) ? 1 : op.mem.scale;
+                WorkItem newItem;
+                newItem.id = uniqueId;       // 방금 만든 ID가 다음 추적의 부모가 됨
+                newItem.parentId = item.id;
+                newItem.pos = foundPos; // 현재 위치 전달
 
-                newItem.memAddr = base + (index * scale) + op.mem.disp.value;
-                newItem.memSize = op.size / 8;
-                if (newItem.memSize == 0) newItem.memSize = 8; // Fallback
-                queue.push_back(newItem);
-            }
-            else if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) {
-                newItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
-                newItem.reg = op.reg.value;
-                newItem.memSize = _ZydisGetRegisterWidth(g_TargetCPUType, newItem.reg) / 8; // Fixed rootItem -> newItem
-                queue.push_back(newItem);
-            }
-            else {
-                return;
-            }
-            queue.push_back(newItem);
-            };
+                bool isValid = false;
+
+                if (op.type == ZYDIS_OPERAND_TYPE_MEMORY) {
+                    uint64_t base = op.mem.base == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.base, false);
+                    uint64_t index = op.mem.index == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.index, false);
+                    uint64_t scale = (op.mem.scale == 0) ? 1 : op.mem.scale;
+
+                    newItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
+                    newItem.memAddr = base + (index * scale) + op.mem.disp.value;
+                    newItem.memSize = op.size / 8;
+                    if (newItem.memSize == 0) newItem.memSize = 8;
+                    isValid = true;
+                }
+                else if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) {
+                    newItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
+                    newItem.reg = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, op.reg.value);
+
+                    newItem.memSize = _ZydisGetRegisterWidth(g_TargetCPUType, newItem.reg) / 8;
+                    isValid = true;
+                }
+
+                if (isValid) {
+                    queue.push_back(newItem);
+                }
+        };
 
         if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA) {
-            // LEA Dest, [Base + Index*Scale + Disp]
-            // Source는 Base 레지스터와 Index 레지스터임.
-            const ZydisDecodedOperand* memOp = &operands[1]; // 보통 두 번째 오퍼랜드가 소스
-
+            const ZydisDecodedOperand* memOp = &operands[1];
             if (memOp->type == ZYDIS_OPERAND_TYPE_MEMORY) {
+                // LEA는 Base와 Index를 각각 별도의 노드로 취급하여 저장
                 if (memOp->mem.base != ZYDIS_REGISTER_NONE) {
-                    WorkItem baseItem = {};
-                    baseItem.id = record.id;
-                    baseItem.parentId = item.id;
-                    baseItem.pos = inspectCursor->GetPosition();
-                    baseItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
-                    baseItem.reg = memOp->mem.base;
-                    baseItem.memSize = 8;
-                    queue.push_back(baseItem);
+                    // 가상의 오퍼랜드 객체를 만들어서 처리
+                    ZydisDecodedOperand tmpOp = *memOp;
+                    tmpOp.type = ZYDIS_OPERAND_TYPE_REGISTER; // 강제로 레지스터 타입으로 변환하여 추적
+                    tmpOp.reg.value = memOp->mem.base;
+                    AddItem(tmpOp);
                 }
                 if (memOp->mem.index != ZYDIS_REGISTER_NONE) {
-                    WorkItem indexItem = {};
-                    indexItem.id = record.id;
-                    indexItem.parentId = item.id;
-                    indexItem.pos = inspectCursor->GetPosition();
-                    indexItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
-                    indexItem.reg = memOp->mem.index;
-                    indexItem.memSize = 8;
-                    queue.push_back(indexItem);
+                    ZydisDecodedOperand tmpOp = *memOp;
+                    tmpOp.type = ZYDIS_OPERAND_TYPE_REGISTER;
+                    tmpOp.reg.value = memOp->mem.index;
+                    AddItem(tmpOp);
                 }
             }
         }
@@ -402,10 +390,6 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::st
             // 예: POP RAX -> Explicit: RAX(Write), Implicit: RSP(Read/Write), Implicit: [RSP](Read)
 
             for (int i = 0; i < instruction.operand_count; i++) {
-                // 현재 찾고 있는 타겟이 이 오퍼랜드에 의해 '쓰기'된 것이 맞는지 검증할 수도 있지만,
-                // 이미 FoundRegisterWrite/MemoryWrite로 위치를 찾았으므로,
-                // 이 명령어의 모든 '입력(Read)' 오퍼랜드를 큐에 넣습니다.
-
                 if (operands[i].actions & ZYDIS_OPERAND_ACTION_READ) {
                     // Flags 레지스터(RFLAGS/EFLAGS) 읽기는 데이터 흐름 추적에서 노이즈가 될 수 있으므로 제외하는 것이 좋습니다.
                     if (operands[i].type == ZYDIS_OPERAND_TYPE_REGISTER &&
@@ -413,12 +397,10 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::st
                         continue;
                     }
 
-                    AddItem(operands[i], foundPos);
+                    AddItem(operands[i]);
                 }
             }
         }
-
-        outFile.write((char*)&record, sizeof(TraceRecord));
     }
 
     outFile.close();
