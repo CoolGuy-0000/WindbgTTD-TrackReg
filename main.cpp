@@ -73,4 +73,16 @@ HRESULT CALLBACK DebugExtensionInitialize(_Out_ ULONG* pVersion, _Out_ ULONG* pF
     return E_FAIL;
 }
 
-void CALLBACK DebugExtensionUninitialize() noexcept {}
+#include "TimeTrackGUI.h"
+
+void CALLBACK DebugExtensionUninitialize() noexcept {
+    TimeTrackGUI::GUIWnd::ShutdownAllGUIWnds();
+    std::lock_guard<std::mutex> lock(TimeTrackGUI::GUIWnd::m_ThreadExitMutex);
+}
+
+HINSTANCE g_hInstDll = nullptr;
+
+BOOL APIENTRY DllMain(HMODULE hModule, DWORD  ul_reason_for_call, LPVOID lpReserved){
+    if(ul_reason_for_call == DLL_PROCESS_ATTACH)g_hInstDll = hModule;
+    return TRUE;
+}

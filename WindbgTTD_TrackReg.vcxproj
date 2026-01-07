@@ -159,13 +159,30 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="BaseUI.cpp" />
+    <ClCompile Include="GUIWnd.cpp" />
+    <ClCompile Include="gui_test.cpp" />
+    <ClCompile Include="KeyValue.cpp" />
     <ClCompile Include="timetrack.cpp" />
     <ClCompile Include="disasm_helper.cpp" />
     <ClCompile Include="main.cpp" />
+    <ClCompile Include="TimeTrackGUIWnd.cpp" />
+    <ClCompile Include="UIButton.cpp" />
+    <ClCompile Include="UICheckBox.cpp" />
+    <ClCompile Include="UIComboBox.cpp" />
+    <ClCompile Include="UIEditBox.cpp" />
+    <ClCompile Include="UIImage.cpp" />
+    <ClCompile Include="UILoader.cpp" />
+    <ClCompile Include="UISlider.cpp" />
+    <ClCompile Include="UIText.cpp" />
+    <ClCompile Include="UITreeView.cpp" />
     <ClCompile Include="utils.cpp" />
   </ItemGroup>
   <ItemGroup>
     <None Include="placeholder" />
+    <Resource Include="ResTempl1.rct">
+      <FileType>Document</FileType>
+    </Resource>
     <None Include="trackreg.def" />
     <None Include="packages.config" />
     <None Include="vcpkg.json" />
@@ -173,12 +190,30 @@
   <ItemGroup>
     <ClInclude Include="disasm_helper.h" />
     <ClInclude Include="Formatters.h" />
+    <ClInclude Include="KeyValue.h" />
     <ClInclude Include="RegisterNameMapping.h" />
     <ClInclude Include="ReplayHelpers.h" />
+    <ClInclude Include="resource.h" />
     <ClInclude Include="stdafx.h" />
+    <ClInclude Include="TimeTrackGUI.h" />
     <ClInclude Include="TimeTrackLogic.h" />
     <ClInclude Include="TraceRecord.h" />
+    <ClInclude Include="UIButton.h" />
+    <ClInclude Include="UICheckBox.h" />
+    <ClInclude Include="UIComboBox.h" />
+    <ClInclude Include="UIEditBox.h" />
+    <ClInclude Include="UIImage.h" />
+    <ClInclude Include="UILoader.h" />
+    <ClInclude Include="UISlider.h" />
+    <ClInclude Include="UIText.h" />
+    <ClInclude Include="UITreeView.h" />
     <ClInclude Include="utils.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <Text Include="gui_main.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <Image Include="gui.ico" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets" />

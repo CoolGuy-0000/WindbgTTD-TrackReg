@@ -1,0 +1,38 @@
+﻿"Main"
+{
+    "Title"     "Time Tracker (GUI)"
+    "Size"      "800 300 800 300"
+
+    "Elements"
+    {
+        "SaveButton"
+        {
+            "Type"      "Button"
+            "Rect"      "50 50 200 100"
+            "Text"      "Save"
+            "Id"        "2"
+        }
+
+        "AutoSaveCheck"
+        {
+            "Type"      "CheckBox"
+            "Rect"      "50 120 250 150"
+            "Text"      "Test CheckBox"
+            "Id"        "1002"
+            "Checked"   "true"
+        }
+        
+        "ProjectCombo"
+        {
+            "Type"      "ComboBox"
+            "Rect"      "300 50 500 80"
+            "Id"        "2001"
+            "Items"
+            {
+                "Item" "A"
+                "Item" "B"
+                "Item" "C"
+            }
+        }
+    }
+}
