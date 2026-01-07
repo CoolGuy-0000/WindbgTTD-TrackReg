@@ -82,9 +82,6 @@
     <ClInclude Include="ReplayHelpers.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
-    <ClInclude Include="utils.h">
-      <Filter>소스 파일</Filter>
-    </ClInclude>
     <ClInclude Include="TimeTrackLogic.h">
       <Filter>소스 파일</Filter>
     </ClInclude>
@@ -110,6 +107,9 @@
       <Filter>헤더 파일</Filter>
     </ClInclude>
     <ClInclude Include="UITreeView.h">
+      <Filter>헤더 파일</Filter>
+    </ClInclude>
+    <ClInclude Include="utils.h">
       <Filter>헤더 파일</Filter>
     </ClInclude>
   </ItemGroup>

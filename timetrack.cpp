@@ -346,14 +346,20 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::st
                 newItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
                 uint64_t base = op.mem.base == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.base, false);
                 uint64_t index = op.mem.index == ZYDIS_REGISTER_NONE ? 0 : (uint64_t)GetRegisterValue(ctx, op.mem.index, false);
-                newItem.memAddr = base + (index * op.mem.scale) + op.mem.disp.value;
+
+                // Scale이 0인 경우 1로 취급 (보통 Zydis는 0이면 register_none이나 마찬가지지만 안전하게)
+                uint64_t scale = (op.mem.scale == 0) ? 1 : op.mem.scale;
+
+                newItem.memAddr = base + (index * scale) + op.mem.disp.value;
                 newItem.memSize = op.size / 8;
-                if (newItem.memSize == 0) newItem.memSize = 8;
+                if (newItem.memSize == 0) newItem.memSize = 8; // Fallback
+                queue.push_back(newItem);
             }
             else if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) {
                 newItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
                 newItem.reg = op.reg.value;
-                rootItem.memSize = _ZydisGetRegisterWidth(g_TargetCPUType, TargetRegister) / 8;
+                newItem.memSize = _ZydisGetRegisterWidth(g_TargetCPUType, newItem.reg) / 8; // Fixed rootItem -> newItem
+                queue.push_back(newItem);
             }
             else {
                 return;
@@ -361,45 +367,55 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::st
             queue.push_back(newItem);
             };
 
-        if (instruction.mnemonic == ZYDIS_MNEMONIC_PUSH) {
-            AddItem(operands[0], foundPos);
-            handled = true;
-        }
-        else if (instruction.mnemonic == ZYDIS_MNEMONIC_POP) {
-            WorkItem newItem;
-            newItem.parentId = currentInstId;
-            newItem.pos = inspectCursor->GetPosition();
-            newItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
-            newItem.memAddr = (uint64_t)inspectCursor->GetStackPointer();
-            newItem.memSize = GetCPUBusSize();
-            queue.push_back(newItem);
-            handled = true;
-        }
-        else if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_MOVZX ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_MOVSX ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_MOVAPS ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_MOVUPS ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_MOVDQA ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_MOVDQU) {
-            AddItem(operands[1], foundPos);
-            handled = true;
-        }
-        else if (instruction.mnemonic == ZYDIS_MNEMONIC_ADD ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_SUB ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_AND ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_OR ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_XOR ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_IMUL ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_SHL ||
-            instruction.mnemonic == ZYDIS_MNEMONIC_SHR) {
+        if (instruction.mnemonic == ZYDIS_MNEMONIC_LEA) {
+            // LEA Dest, [Base + Index*Scale + Disp]
+            // Source는 Base 레지스터와 Index 레지스터임.
+            const ZydisDecodedOperand* memOp = &operands[1]; // 보통 두 번째 오퍼랜드가 소스
 
-            AddItem(operands[0], foundPos);
+            if (memOp->type == ZYDIS_OPERAND_TYPE_MEMORY) {
+                if (memOp->mem.base != ZYDIS_REGISTER_NONE) {
+                    WorkItem baseItem = {};
+                    baseItem.id = record.id;
+                    baseItem.parentId = item.id;
+                    baseItem.pos = inspectCursor->GetPosition();
+                    baseItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
+                    baseItem.reg = memOp->mem.base;
+                    baseItem.memSize = 8;
+                    queue.push_back(baseItem);
+                }
+                if (memOp->mem.index != ZYDIS_REGISTER_NONE) {
+                    WorkItem indexItem = {};
+                    indexItem.id = record.id;
+                    indexItem.parentId = item.id;
+                    indexItem.pos = inspectCursor->GetPosition();
+                    indexItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
+                    indexItem.reg = memOp->mem.index;
+                    indexItem.memSize = 8;
+                    queue.push_back(indexItem);
+                }
+            }
+        }
+        else {
+            // 일반 명령어 처리 (MOV, ADD, SUB, POP, PUSH, XCHG 등 모두 포함)
+            // '읽기(Read)' 속성이 있는 모든 오퍼랜드는 결과값에 영향을 주는 부모입니다.
+            // ZydisDecoderDecodeFull은 Explicit(명시적) 오퍼랜드와 Implicit(암시적) 오퍼랜드를 모두 반환합니다.
+            // 예: POP RAX -> Explicit: RAX(Write), Implicit: RSP(Read/Write), Implicit: [RSP](Read)
 
-            if (instruction.operand_count >= 2)
-                AddItem(operands[1], foundPos);
+            for (int i = 0; i < instruction.operand_count; i++) {
+                // 현재 찾고 있는 타겟이 이 오퍼랜드에 의해 '쓰기'된 것이 맞는지 검증할 수도 있지만,
+                // 이미 FoundRegisterWrite/MemoryWrite로 위치를 찾았으므로,
+                // 이 명령어의 모든 '입력(Read)' 오퍼랜드를 큐에 넣습니다.
 
-            handled = true;
+                if (operands[i].actions & ZYDIS_OPERAND_ACTION_READ) {
+                    // Flags 레지스터(RFLAGS/EFLAGS) 읽기는 데이터 흐름 추적에서 노이즈가 될 수 있으므로 제외하는 것이 좋습니다.
+                    if (operands[i].type == ZYDIS_OPERAND_TYPE_REGISTER &&
+                        (operands[i].reg.value == ZYDIS_REGISTER_RFLAGS || operands[i].reg.value == ZYDIS_REGISTER_EFLAGS)) {
+                        continue;
+                    }
+
+                    AddItem(operands[i], foundPos);
+                }
+            }
         }
 
         outFile.write((char*)&record, sizeof(TraceRecord));
