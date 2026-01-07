@@ -389,12 +389,30 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::st
             // ZydisDecoderDecodeFull은 Explicit(명시적) 오퍼랜드와 Implicit(암시적) 오퍼랜드를 모두 반환합니다.
             // 예: POP RAX -> Explicit: RAX(Write), Implicit: RSP(Read/Write), Implicit: [RSP](Read)
 
+            std::set<ZydisRegister> processedRegs;
+
             for (int i = 0; i < instruction.operand_count; i++) {
                 if (operands[i].actions & ZYDIS_OPERAND_ACTION_READ) {
+
+                    if (operands[i].type != ZYDIS_OPERAND_TYPE_REGISTER &&
+                        operands[i].type != ZYDIS_OPERAND_TYPE_MEMORY) {
+                        continue;
+                    }
+
                     // Flags 레지스터(RFLAGS/EFLAGS) 읽기는 데이터 흐름 추적에서 노이즈가 될 수 있으므로 제외하는 것이 좋습니다.
                     if (operands[i].type == ZYDIS_OPERAND_TYPE_REGISTER &&
                         (operands[i].reg.value == ZYDIS_REGISTER_RFLAGS || operands[i].reg.value == ZYDIS_REGISTER_EFLAGS)) {
                         continue;
+                    }
+
+                    if (operands[i].type == ZYDIS_OPERAND_TYPE_REGISTER) {
+                        ZydisRegister enclosingReg = ZydisRegisterGetLargestEnclosing(ZYDIS_MACHINE_MODE_LONG_64, operands[i].reg.value);
+
+                        // 이미 이번 명령어에서 이 레지스터를 처리했다면 건너뜀
+                        if (processedRegs.find(enclosingReg) != processedRegs.end()) {
+                            continue;
+                        }
+                        processedRegs.insert(enclosingReg);
                     }
 
                     AddItem(operands[i]);
