@@ -1,3 +1,4 @@
+Time Tracker is currently in beta. It is still under development! <br/><br/>
 The text file must be placed in the same folder as the DLL file !!!!!!
 <img width="619" height="209" alt="image" src="https://github.com/user-attachments/assets/7f1f035f-6fce-4e30-bf6d-8d23b7266978" />
 
