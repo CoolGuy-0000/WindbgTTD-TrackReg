@@ -1,0 +1,15 @@
+"TT"
+{
+    "Title"     "Time Tracker (GUI)"
+    "Size"      "1000 1000 1000 1000"
+	
+	"Elements"
+    {
+        "TTGUI"
+		{
+			"Type"      "TimeTrackTree"
+			"Rect"      "0 0 1000 1000"
+			"Z"         "0"
+		}
+    }
+}

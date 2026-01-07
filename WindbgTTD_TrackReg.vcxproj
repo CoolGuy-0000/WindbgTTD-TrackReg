@@ -203,6 +203,7 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="gui_main.txt" />
+    <Text Include="gui_timetrack.txt" />
   </ItemGroup>
   <ItemGroup>
     <Image Include="gui.ico" />
