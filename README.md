@@ -7,6 +7,4 @@ The text file must be placed in the same folder as the DLL file !!!!!!
 
 <img width="1919" height="1016" alt="image" src="https://github.com/user-attachments/assets/97c29a06-3006-47e7-88cd-174927b70e11" />
 
-<img width="1919" height="995" alt="image" src="https://github.com/user-attachments/assets/42ec13a4-ca3b-4079-bfff-648f45c9353d" />
-
-<img width="1919" height="1032" alt="image" src="https://github.com/user-attachments/assets/0055bddd-a973-4161-b745-e04f60d0f230" />
+<img width="1674" height="757" alt="image" src="https://github.com/user-attachments/assets/205400d6-7387-44a8-8496-27bc0aee34ea" />
