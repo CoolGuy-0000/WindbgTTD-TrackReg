@@ -116,6 +116,7 @@ DWORD WINAPI GUIWnd::GUIMainThread(LPVOID) {
     const TCHAR* className = TEXT("TTDTimeView");
 
     WNDCLASSEX wc = { 0 };
+
     if (!GetClassInfoEx(g_hInstDll, className, &wc)) {
         wc.cbSize = sizeof(WNDCLASSEX);
         wc.style = CS_HREDRAW | CS_VREDRAW;
@@ -124,9 +125,7 @@ DWORD WINAPI GUIWnd::GUIMainThread(LPVOID) {
         wc.hCursor = LoadCursor(NULL, IDC_ARROW);
         wc.hIconSm = (HICON)LoadImage(g_hInstDll, MAKEINTRESOURCE(IDI_ICON1), IMAGE_ICON, 16, 16, LR_DEFAULTCOLOR);
         wc.lpszClassName = className;
-        if (!RegisterClassEx(&wc)) {
-            return 0;
-        }
+        if (!RegisterClassEx(&wc)) return 0;
     }
 
     if (!g_pD2D1Factory)
@@ -185,6 +184,8 @@ DWORD WINAPI GUIWnd::GUIMainThread(LPVOID) {
 
     g_pD2D1Factory.Reset();
     g_pDWriteFactory.Reset();
+
+	if(wc.hIconSm)DestroyIcon(wc.hIconSm);
 
     UnregisterClass(className, wc.hInstance);
 

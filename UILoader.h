@@ -11,6 +11,5 @@ namespace TimeTrackGUI {
 
     private:
         static UIElement* CreateControl(UIManager* mgr, KeyValue* node);
-        static void ParseTreeNodes(UITreeView* tree, TreeNode* parent, KeyValue* kvNode);
     };
 }

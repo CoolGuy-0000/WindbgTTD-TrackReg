@@ -4,10 +4,15 @@
 #include <atlcomcli.h>
 #include "TimeTrackGUI.h"
 
+
+extern TimeTrackGUI::TimeTrackGUIWnd* track_gui;
+
 HRESULT CALLBACK timetrackgui(IDebugClient* const pClient, const char* const pArgs) noexcept
 try
 {
-	new TimeTrackGUI::TimeTrackGUIWnd();
+    if(!track_gui)
+        track_gui = new TimeTrackGUI::TimeTrackGUIWnd();
+
     return S_OK;
 }
 catch (const std::exception& e)

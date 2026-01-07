@@ -32,7 +32,8 @@ namespace TimeTrackGUI {
         Unknown,
         ButtonClick,
         CheckBoxChange,
-        TreeSelect
+        TreeSelect,
+        TreeRightClick
     };
 
     struct UIEventMsg {
@@ -92,7 +93,8 @@ namespace TimeTrackGUI {
         
         void Register(UIElement* element);
         void Unregister(UIElement* element);
-        
+		void RemoveAllElements() { m_elements.clear(); }
+
         ID2D1HwndRenderTarget* GetRenderTarget() { return m_pRenderTarget.Get(); }
 
         void OnDeviceLost();

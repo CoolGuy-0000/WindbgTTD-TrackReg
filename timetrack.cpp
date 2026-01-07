@@ -28,12 +28,16 @@
 #include "disasm_helper.h"
 
 #include <Zydis/Zydis.h>
-#include "TraceRecord.h"
+#include "TimeTrackGUI.h"
 #include "TimeTrackLogic.h"
 
 extern IReplayEngineView* g_pReplayEngine;
 extern ICursorView* g_pGlobalCursor;
 extern ProcessorArchitecture g_TargetCPUType;
+
+extern TimeTrackGUI::TimeTrackGUIWnd* track_gui;
+
+std::map<int, std::vector<TraceRecord>> g_LastTraceTree;
 
 // ----------------------------------------------------------------------------
 // Core Logic
@@ -44,8 +48,8 @@ extern ProcessorArchitecture g_TargetCPUType;
 Position FindRegisterWrite(ICursor* cursor, ZydisRegister reg)
 {
     struct __TargetReg {
-        ZydisRegister reg;
-        RegValue value;
+        ZydisRegister reg = ZYDIS_REGISTER_NONE;
+        RegValue value = 0;
     };
 
     __TargetReg targetReg;
@@ -105,6 +109,7 @@ Position FindMemoryWrite(ICursor* cursor, uint64_t address, uint64_t size)
 
     cursor->AddMemoryWatchpoint(wd);
     cursor->SetEventMask(EventMask::MemoryWatchpoint);
+    cursor->SetReplayFlags(ReplayFlags::None);
 
     ICursorView::ReplayResult result = cursor->ReplayBackward();
 
@@ -200,7 +205,7 @@ void PrintRecordTreeIterative(IDebugClient* client, std::map<int, std::vector<Tr
     }
 }
 
-std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const std::string& arg)
+std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, std::string targetStr, int size, int maxSteps)
 {
     std::map<int, std::vector<TraceRecord>> tree;
     g_TargetCPUType = GetGuestArchitecture(*g_pGlobalCursor);
@@ -210,24 +215,9 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
         return tree;
     }
 
-	CComQIPtr<IDebugControl> control(client);
+    CComQIPtr<IDebugControl> control(client);
 
     if (!control) return tree;
-
-    std::stringstream ss(arg);
-    std::string targetStr;
-    std::string sizeStr;
-    std::string maxStepsStr;
-    
-    ss >> targetStr;
-    if (!(ss >> sizeStr)) {
-        sizeStr = "0"; // Default
-    }
-    if (!(ss >> maxStepsStr)) {
-        maxStepsStr = "50"; // Default
-    }
-    
-    int maxSteps = std::stoul(maxStepsStr, nullptr, 0);
 
     char tempPath[MAX_PATH];
     GetTempPathA(MAX_PATH, tempPath);
@@ -241,7 +231,7 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
     }
 
     UniqueCursor inspectCursor(g_pReplayEngine->NewCursor());
-	inspectCursor->SetPosition(g_pGlobalCursor->GetPosition());
+    inspectCursor->SetPosition(g_pGlobalCursor->GetPosition());
 
     ZydisDecoder decoder;
     SetupZydisDecoder(&decoder, g_TargetCPUType);
@@ -260,7 +250,7 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
 
     WorkItem rootItem;
     rootItem.parentId = 0;
-	rootItem.pos = inspectCursor->GetPosition();
+    rootItem.pos = inspectCursor->GetPosition();
 
     TraceRecord rootRecord = {};
     rootRecord.id = ++idCounter;
@@ -271,20 +261,22 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
 
     ZydisRegister TargetRegister = GetRegisterByName(targetStr.c_str());
 
-    if (TargetRegister == ZYDIS_REGISTER_NONE){
+    if (TargetRegister == ZYDIS_REGISTER_NONE) {
         rootItem.type = ZYDIS_OPERAND_TYPE_MEMORY;
         DEBUG_VALUE val;
-        if (SUCCEEDED(control->Evaluate(arg.c_str(), DEBUG_VALUE_INT64, &val, NULL))) {
+        if (SUCCEEDED(control->Evaluate(targetStr.c_str(), DEBUG_VALUE_INT64, &val, NULL))) {
             rootItem.memAddr = val.I64;
-            rootItem.memSize = std::stoul(sizeStr, nullptr, 0);
+            rootItem.memSize = size;
             if (rootItem.memSize == 0) rootItem.memSize = 8;
-        } else {
+        }
+        else {
             dprintf("Invalid argument.\n");
             outFile.close();
             DeleteFileA(tempFile.c_str());
             return tree;
         }
-    } else {
+    }
+    else {
         rootItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
         rootItem.reg = TargetRegister;
         rootItem.memSize = _ZydisGetRegisterWidth(g_TargetCPUType, TargetRegister) / 8;
@@ -296,20 +288,21 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
     queue.push_back(rootItem);
 
     int steps = 0;
-    
 
-    while(!queue.empty() && steps < maxSteps) {
+
+    while (!queue.empty() && steps < maxSteps) {
         WorkItem item = queue.front();
         queue.pop_front();
         steps++;
 
-		inspectCursor->SetPosition(item.pos);
+        inspectCursor->SetPosition(item.pos);
 
         Position foundPos = Position::Invalid;
 
-        if (item.type == ZYDIS_OPERAND_TYPE_REGISTER){
+        if (item.type == ZYDIS_OPERAND_TYPE_REGISTER) {
             foundPos = FindRegisterWrite(inspectCursor.get(), item.reg);
-        } else {
+        }
+        else {
             foundPos = FindMemoryWrite(inspectCursor.get(), item.memAddr, item.memSize);
         }
 
@@ -323,7 +316,7 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
 
         int currentInstId = ++idCounter;
         record.id = currentInstId;
-        
+
 
         // Disassemble
 
@@ -356,15 +349,17 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
                 newItem.memAddr = base + (index * op.mem.scale) + op.mem.disp.value;
                 newItem.memSize = op.size / 8;
                 if (newItem.memSize == 0) newItem.memSize = 8;
-            } else if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) {
+            }
+            else if (op.type == ZYDIS_OPERAND_TYPE_REGISTER) {
                 newItem.type = ZYDIS_OPERAND_TYPE_REGISTER;
                 newItem.reg = op.reg.value;
                 rootItem.memSize = _ZydisGetRegisterWidth(g_TargetCPUType, TargetRegister) / 8;
-            } else {
+            }
+            else {
                 return;
             }
             queue.push_back(newItem);
-        };
+            };
 
         if (instruction.mnemonic == ZYDIS_MNEMONIC_PUSH) {
             AddItem(operands[0], foundPos);
@@ -381,23 +376,23 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
             handled = true;
         }
         else if (instruction.mnemonic == ZYDIS_MNEMONIC_MOV ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_MOVZX ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_MOVSX ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_MOVAPS ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_MOVUPS ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_MOVDQA ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_MOVDQU) {
+            instruction.mnemonic == ZYDIS_MNEMONIC_MOVZX ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_MOVSX ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_MOVAPS ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_MOVUPS ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_MOVDQA ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_MOVDQU) {
             AddItem(operands[1], foundPos);
             handled = true;
         }
         else if (instruction.mnemonic == ZYDIS_MNEMONIC_ADD ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_SUB ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_AND ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_OR ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_XOR ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_IMUL ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_SHL ||
-                 instruction.mnemonic == ZYDIS_MNEMONIC_SHR) {
+            instruction.mnemonic == ZYDIS_MNEMONIC_SUB ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_AND ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_OR ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_XOR ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_IMUL ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_SHL ||
+            instruction.mnemonic == ZYDIS_MNEMONIC_SHR) {
 
             AddItem(operands[0], foundPos);
 
@@ -406,7 +401,7 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
 
             handled = true;
         }
-        
+
         outFile.write((char*)&record, sizeof(TraceRecord));
     }
 
@@ -433,17 +428,57 @@ std::map<int, std::vector<TraceRecord>> _TimeTrack(IDebugClient* client, const s
 HRESULT CALLBACK timetrack(IDebugClient* const pClient, const char* const pArgs) noexcept
 try
 {
+    // 1. 인자 유효성 검사
     if (pArgs == nullptr || strlen(pArgs) == 0)
     {
-        dprintf("Usage: !timetrack <register or memory(0x7ffff0000 or RBP+30h)> <size> <Max Steps=50>\n");
+        dprintf("Usage: !timetrack <target> <size> <Max Steps=50> <gui>\n");
+        dprintf("Example: !timetrack @rbp+30 8 100\n");
+        dprintf("Example: !timetrack 0x7ff7a000 4\n");
         return S_OK;
     }
 
-    std::string arg = pArgs;
+    std::stringstream ss(pArgs);
 
-    auto tree = _TimeTrack(pClient, arg);
+    std::string targetStr;
+    std::string sizeStr;
+    std::string maxStepsStr;
+    std::string guiStr;
+    ss >> targetStr;
 
-    PrintRecordTreeIterative(pClient, tree);
+    unsigned int size = 0;
+    unsigned int maxSteps = 50;
+    bool showGui = false;
+
+    if (ss >> sizeStr) {
+        size = std::stoul(sizeStr, nullptr, 0);
+    }
+
+    if (ss >> maxStepsStr) {
+        if (maxStepsStr == "gui") {
+            showGui = true;
+        }
+        else {
+            maxSteps = std::stoul(maxStepsStr, nullptr, 0);
+        }
+    }
+
+    if (ss >> guiStr) {
+        if (guiStr == "gui") {
+            showGui = true;
+        }
+    }
+
+    g_LastTraceTree = _TimeTrack(pClient, targetStr, size, maxSteps);
+
+    if (showGui && track_gui) {
+
+        PostMessage(track_gui->GetHWND(), WM_TTGUI_COMMAND, (WPARAM)13, (LPARAM)pClient);
+
+        //DWORD tid = GetThreadId(TimeTrackGUI::GUIWnd::m_hThread);
+        //if (tid != 0) PostThreadMessage(tid, WM_TTGUI_COMMAND, (WPARAM)13, (LPARAM)pClient);
+        //else PostMessage(HWND_BROADCAST, WM_TTGUI_COMMAND, (WPARAM)13, (LPARAM)pClient);
+    }
+    else PrintRecordTreeIterative(pClient, g_LastTraceTree);
 
     return S_OK;
 }

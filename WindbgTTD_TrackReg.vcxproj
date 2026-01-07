@@ -149,6 +149,7 @@
       <AdditionalOptions>/D "ZYCORE_STATIC_BUILD" %(AdditionalOptions)</AdditionalOptions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <Optimization>MaxSpeed</Optimization>
+      <FavorSizeOrSpeed>Speed</FavorSizeOrSpeed>
     </ClCompile>
     <Link>
       <SubSystem>Console</SubSystem>
@@ -168,12 +169,8 @@
     <ClCompile Include="main.cpp" />
     <ClCompile Include="TimeTrackGUIWnd.cpp" />
     <ClCompile Include="UIButton.cpp" />
-    <ClCompile Include="UICheckBox.cpp" />
-    <ClCompile Include="UIComboBox.cpp" />
-    <ClCompile Include="UIEditBox.cpp" />
     <ClCompile Include="UIImage.cpp" />
     <ClCompile Include="UILoader.cpp" />
-    <ClCompile Include="UISlider.cpp" />
     <ClCompile Include="UIText.cpp" />
     <ClCompile Include="UITreeView.cpp" />
     <ClCompile Include="utils.cpp" />
@@ -197,14 +194,9 @@
     <ClInclude Include="stdafx.h" />
     <ClInclude Include="TimeTrackGUI.h" />
     <ClInclude Include="TimeTrackLogic.h" />
-    <ClInclude Include="TraceRecord.h" />
     <ClInclude Include="UIButton.h" />
-    <ClInclude Include="UICheckBox.h" />
-    <ClInclude Include="UIComboBox.h" />
-    <ClInclude Include="UIEditBox.h" />
     <ClInclude Include="UIImage.h" />
     <ClInclude Include="UILoader.h" />
-    <ClInclude Include="UISlider.h" />
     <ClInclude Include="UIText.h" />
     <ClInclude Include="UITreeView.h" />
     <ClInclude Include="utils.h" />

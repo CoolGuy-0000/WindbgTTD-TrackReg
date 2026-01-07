@@ -16,7 +16,6 @@ namespace TimeTrackGUI {
 
         void Render() override;
 
-        // 속성 설정
         void SetText(const std::wstring& text) { m_text = text; }
         void SetColor(const D2D1_COLOR_F& color) { m_color = color; }
         void SetFontSize(float size) { m_fontSize = size; }

@@ -1,13 +1,12 @@
 #include "UILoader.h"
 #include "UIButton.h"
-#include "UICheckBox.h"
-#include "UIComboBox.h"
 #include "UIImage.h"
-#include "UITreeView.h"
 #include "UIText.h"
+#include "TimeTrackLogic.h"
 #include <Windows.h>
 #include <memory>
 #include <sstream>
+#include "utils.h"
 
 // ... 필요한 헤더들
 
@@ -20,39 +19,6 @@ D2D1_COLOR_F ParseColor(const std::wstring& str) {
     ss >> r >> g >> b;
     if (!ss.eof()) ss >> a; // 알파값은 선택 사항
     return D2D1::ColorF(r, g, b, a);
-}
-
-void UILoader::ParseTreeNodes(UITreeView* tree, TreeNode* parent, KeyValue* kvContainer) {
-    // kvContainer는 "Nodes" 혹은 "Children" 블록입니다.
-    // 이 블록 아래의 자식들(각 노드 정의)을 순회합니다.
-    for (auto& itemKV : kvContainer->GetChildren()) {
-
-        // 1. 속성 읽기
-        std::wstring text = itemKV->GetKey(); // 기본값은 키 이름 (예: "Node1")
-        if (auto* t = itemKV->FindChild(L"Text")) text = t->GetValue();
-
-        int nodeId = 0;
-        if (auto* i = itemKV->FindChild(L"Id")) nodeId = i->AsInt();
-
-        // 2. 노드 생성 (부모가 없으면 Root, 있으면 Child)
-        TreeNode* newNode = nullptr;
-        if (parent == nullptr) {
-            newNode = tree->AddRootNode(text, nodeId);
-        }
-        else {
-            newNode = tree->AddChildNode(parent, text, nodeId);
-        }
-
-        // 3. 자식 노드가 있는지 확인하고 재귀 호출 ("Children" 키가 있을 경우)
-        if (auto* childrenKV = itemKV->FindChild(L"Children")) {
-            ParseTreeNodes(tree, newNode, childrenKV); // 재귀!
-        }
-
-        // (선택 사항) 처음부터 펼쳐진 상태로 만들고 싶다면
-        if (auto* ex = itemKV->FindChild(L"Expanded")) {
-            if (ex->AsBool()) newNode->isExpanded = true;
-        }
-    }
 }
 
 bool UILoader::CreateUIFromKeyValues(UIManager* mgr, const std::wstring& filepath) {
@@ -119,40 +85,10 @@ UIElement* UILoader::CreateControl(UIManager* mgr, KeyValue* node) {
         
         element = new UIButton(mgr, text, rect, id);
     }
-    else if (type == L"CheckBox") {
-        std::wstring text = L"Check";
-        if (auto* t = node->FindChild(L"Text")) text = t->GetValue();
-        bool checked = false;
-        if (auto* c = node->FindChild(L"Checked")) checked = c->AsBool();
-
-        element = new UICheckBox(mgr, text, rect, id, checked);
-    }
-    else if (type == L"ComboBox") {
-        UIComboBox* combo = new UIComboBox(mgr, rect, id);
-
-        // 콤보박스 아이템 추가 처리
-        KeyValue* itemsNode = node->FindChild(L"Items");
-        if (itemsNode) {
-            for (auto& item : itemsNode->GetChildren()) {
-                combo->AddItem(item->GetValue());
-            }
-        }
-
-        element = combo;
-    }
     else if (type == L"Image") {
         std::wstring path = L"";
         if (auto* p = node->FindChild(L"Path")) path = p->GetValue();
         element = new UIImage(mgr, path, rect, id);
-    }
-    else if (type == L"Tree") {
-        UITreeView* tree = new UITreeView(mgr, rect, id);
-
-        if (auto* nodesKV = node->FindChild(L"Nodes")) {
-            ParseTreeNodes(tree, nullptr, nodesKV);
-        }
-
-        element = tree;
     }
     else if (type == L"Text") {
         std::wstring text = L"Label";
@@ -178,6 +114,11 @@ UIElement* UILoader::CreateControl(UIManager* mgr, KeyValue* node) {
         }
 
         element = uiText;
+    }
+    else if (type == L"TimeTrackTree") {
+        UITreeView* tree = new UITreeView(mgr, rect, id);
+        LoadTraceDataToTree(tree, g_LastTraceTree, 0);
+        element = tree;
     }
 
     element->SetZIndex(z);
